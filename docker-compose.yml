@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chairman-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - chromadb
+    networks:
+      - chairman-network
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: chairman-chromadb
+    restart: unless-stopped
+    volumes:
+      - chroma-data:/chroma/chroma
+    ports:
+      - "8000:8000"
+    networks:
+      - chairman-network
+
+networks:
+  chairman-network:
+    driver: bridge
+
+volumes:
+  chroma-data:
+    driver: local
