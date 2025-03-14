@@ -11,13 +11,18 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.15",
+    "@ai-sdk/groq": "^1.1.13",
     "@ai-sdk/openai": "^1.2.1",
-    "@daydreamsai/core": "^0.2.13",
-    "@daydreamsai/discord": "^0.2.13",
-    "@daydreamsai/chromadb": "^0.2.13",
+    "@daydreamsai/chromadb": "^0.2.14",
+    "@daydreamsai/core": "^0.2.14",
+    "@daydreamsai/discord": "^0.2.14",
+    "@openrouter/ai-sdk-provider": "^0.4.3",
     "@tavily/core": "^0.3.1",
+    "cohere-ai": "^7.16.0",
     "discord.js": "^14.18.0",
     "hyperliquid": "^1.6.2",
+    "ollama": "^0.5.14",
+    "socket.io-client": "^4.8.1",
     "zod": "^3.24.2"
   }
 }
