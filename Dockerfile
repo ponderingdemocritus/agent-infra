@@ -20,18 +20,12 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl jq && rm -rf /var/lib/apt/lists/*
 
 # Copy built application from the base stage
-COPY --from=base /app/index.ts /app/index.ts
-COPY --from=base /app/chat.ts /app/chat.ts
-COPY --from=base /app/chat-client.ts /app/chat-client.ts
-COPY --from=base /app/character-gen.ts /app/character-gen.ts
-COPY --from=base /app/polyfill.ts /app/polyfill.ts
+COPY --from=base /app/src /app/src
 COPY --from=base /app/node_modules /app/node_modules
 COPY --from=base /app/package.json /app/package.json
-COPY --from=base /app/deep-research /app/deep-research
 COPY --from=base /app/.env.example /app/.env.example
 
 # Set environment variables
 ENV NODE_ENV=production
 
-# Wait for ChromaDB to be fully ready before starting the application
-CMD ["bun", "index.ts"] 
+CMD ["bun", "src/index.ts"] 

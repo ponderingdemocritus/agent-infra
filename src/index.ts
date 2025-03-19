@@ -16,6 +16,7 @@ import { tavily } from "@tavily/core";
 import { generateCharacter } from "./character-gen";
 import { chat } from "./chat";
 import { openrouter } from "@openrouter/ai-sdk-provider";
+import { eternum } from "./eternum";
 
 // // Validate environment before proceeding
 validateEnv(
@@ -176,7 +177,7 @@ async function initializeAgent() {
       logger: LogLevel.DEBUG,
       model: model,
       context: goalContexts,
-      extensions: [chat],
+      extensions: [chat, eternum],
       container,
     }).start({ id: "test", initialGoal: "", initialTasks: [] });
 
@@ -192,3 +193,12 @@ async function initializeAgent() {
 
 // Start the agent
 initializeAgent();
+
+// event fires ingame
+// container spins up with new character
+// it starts playing the game and chatting in chat
+
+// scan the world see where they are
+// attack people
+// move around
+// explore the world

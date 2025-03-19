@@ -23,6 +23,7 @@
     "hyperliquid": "^1.6.2",
     "ollama": "^0.5.14",
     "socket.io-client": "^4.8.1",
+    "starknet": "^6.23.1",
     "zod": "^3.24.2"
   }
 }

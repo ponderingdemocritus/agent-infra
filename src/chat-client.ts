@@ -36,6 +36,8 @@ class ChatClient {
     username: string,
     logLevel: LogLevel = LogLevel.INFO
   ) {
+    // http://host.docker.internal:3000
+    //agent-chat-production-35e4.up.railway.app
     this.socket = io("https://agent-chat-production-35e4.up.railway.app", {
       auth: { token, username },
       transports: ["websocket"],
