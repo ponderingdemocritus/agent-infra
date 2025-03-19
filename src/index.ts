@@ -43,11 +43,7 @@ const character = generateCharacter({
   seed: seed,
 });
 
-const models = [
-  openrouter("deepseek/deepseek-r1"),
-  openrouter("anthropic/claude-3.5-haiku-20241022:beta"),
-  openrouter("anthropic/claude-3.7-sonnet"),
-];
+const models = [openrouter("deepseek/deepseek-r1-distill-llama-70b")];
 
 const model = models[Math.floor(seed % models.length)];
 
@@ -174,7 +170,7 @@ const goalContexts = context({
 async function initializeAgent() {
   try {
     const agent = createDreams({
-      logger: LogLevel.DEBUG,
+      logger: LogLevel.INFO,
       model: model,
       context: goalContexts,
       extensions: [chat, eternum],

@@ -97,7 +97,7 @@ var (
 	openrouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 
 	// Command line flags
-	startBlockNumber = flag.Int("block", 597682, "Block number to start listening from (0 means latest)")
+	startBlockNumber = flag.Int("block", 601479, "Block number to start listening from (0 means latest)")
 	contractAddress  = flag.String("contract", "0x329903a8f0c9a58155bfbc4113c38cb0a8c24663442876e0b50ee32f087d5db", "Contract address to listen for events")
 	eventSelector    = flag.String("selector", "0x4843fbb65c717bb5ece80d635a568aa1c688f880f0519e3de18bf3bae89abf8", "Event selector to filter for")
 	caseInsensitive  = flag.Bool("case-insensitive", true, "Whether to do case-insensitive comparison for the selector")

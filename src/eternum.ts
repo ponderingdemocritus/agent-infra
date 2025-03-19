@@ -13,7 +13,11 @@ import { service } from "@daydreamsai/core";
 import type { ServiceProvider } from "@daydreamsai/core";
 import { LogLevel } from "@daydreamsai/core";
 import { Account, RpcProvider, type Call } from "starknet";
-import { getContract, troop_movement_systems } from "./extract";
+import {
+  getContract,
+  troop_battle_systems,
+  troop_movement_systems,
+} from "./extract";
 
 interface GraphQLResponse {
   s1EternumExplorerTroopsModels: {
@@ -238,7 +242,7 @@ const rpc_url =
 
 const torii_url = "https://api.cartridge.gg/x/eternum-sepolia/torii/graphql";
 
-const explorer_id = parseInt(process.env.EVENT_DATA_1 || "198");
+const explorer_id = parseInt(process.env.EVENT_DATA_1 || "190");
 
 const rpc = new RpcProvider({
   nodeUrl: rpc_url,
@@ -326,6 +330,8 @@ const template = `
     5: Up-Left
 
     Try to move around the map to discover new areas.
+
+    You can attack other explorers or structures, and you should try to do so if you think you can win.
 
     Eternum Context`;
 
@@ -598,6 +604,86 @@ export const eternum = extension({
           return { result: "success" };
         } catch (error) {
           console.error("Error moving explorer:", error);
+          return {
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    }),
+
+    action({
+      name: "attackOtherExplorers",
+      description: "Attack other explorers",
+      schema: z.object({
+        aggressor_id: z.number().describe("This is your explorer id"),
+        defender_id: z
+          .number()
+          .describe("ID of the explorer you want to attack"),
+        defender_direction: z
+          .number()
+          .describe(
+            "Direction to the defender: 0: Up, 1: Up-Right, 2: Down-Right, 3: Down, 4: Down-Left, 5: Up-Left (you have to be adjacent to the defender to attack them)"
+          ),
+      }),
+      async handler(call, ctx, agent) {
+        try {
+          const moveCall: Call = {
+            contractAddress: troop_battle_systems!,
+            entrypoint: "attack_explorer_vs_explorer",
+            calldata: [
+              call.data.aggressor_id,
+              call.data.defender_id,
+              call.data.defender_direction,
+            ],
+          };
+
+          const { transaction_hash } = await account.execute(moveCall);
+
+          await account.waitForTransaction(transaction_hash);
+
+          return { result: "success" };
+        } catch (error) {
+          console.error("Error attacking explorer:", error);
+          return {
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    }),
+    action({
+      name: "attackStructure",
+      description:
+        "Attack a structure. You have to be adjacent to the structure to attack it.",
+      schema: z.object({
+        explorer_id: z
+          .number()
+          .describe("ID of the explorer initiating the attack"),
+        structure_id: z.number().describe("ID of the structure being attacked"),
+        structure_direction: z
+          .number()
+          .describe(
+            "Direction to the structure: 0: Up, 1: Up-Right, 2: Down-Right, 3: Down, 4: Down-Left, 5: Up-Left"
+          ),
+      }),
+      async handler(call, ctx, agent) {
+        try {
+          const moveCall: Call = {
+            contractAddress: troop_battle_systems!,
+            entrypoint: "attack_explorer_vs_explorer",
+            calldata: [
+              call.data.explorer_id,
+              call.data.structure_id,
+              call.data.structure_direction,
+            ],
+          };
+
+          const { transaction_hash } = await account.execute(moveCall);
+
+          await account.waitForTransaction(transaction_hash);
+
+          return { result: "success" };
+        } catch (error) {
+          console.error("Error attacking explorer:", error);
           return {
             error: error instanceof Error ? error.message : String(error),
           };
