@@ -7,9 +7,9 @@
         "@ai-sdk/anthropic": "^1.1.15",
         "@ai-sdk/groq": "^1.1.13",
         "@ai-sdk/openai": "^1.2.1",
-        "@daydreamsai/chromadb": "^0.2.16",
-        "@daydreamsai/core": "^0.2.16",
-        "@daydreamsai/discord": "^0.2.16",
+        "@daydreamsai/chromadb": "^0.2.17-alpha.0",
+        "@daydreamsai/core": "^0.2.17-alpha.0",
+        "@daydreamsai/discord": "^0.2.17-alpha.0",
         "@openrouter/ai-sdk-provider": "^0.4.3",
         "@tavily/core": "^0.3.1",
         "cohere-ai": "^7.16.0",
@@ -113,11 +113,11 @@
 
     "@cfworker/json-schema": ["@cfworker/json-schema@4.1.1", "", {}, "sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og=="],
 
-    "@daydreamsai/chromadb": ["@daydreamsai/chromadb@0.2.16", "", { "dependencies": { "@daydreamsai/core": "0.2.16", "chromadb": "^1.10.5", "zod": "^3.24.2" } }, "sha512-v0gjj3ZYFsd5wS0yzYaMpRbunek5Q6xir5kTdgBa7x7bvj7ZZaV39rSu9UALeIaJhx8I0VbnpfPT/leVFDMZcg=="],
+    "@daydreamsai/chromadb": ["@daydreamsai/chromadb@0.2.17-alpha.0", "", { "dependencies": { "@daydreamsai/core": "0.2.17-alpha.0", "chromadb": "^1.10.5", "zod": "^3.24.2" } }, "sha512-dPat1bRQSzkk+HmLk8V3OguxztRgmfX7U6F+5dZL+F4FKdxldXy6rZo4CdeisMyClHW+jcGrftqmhTNaGKqPjg=="],
 
-    "@daydreamsai/core": ["@daydreamsai/core@0.2.16", "", { "dependencies": { "@ai-sdk/openai": "^1.1.14", "@langchain/core": "^0.3.39", "@langchain/textsplitters": "^0.1.0", "@modelcontextprotocol/sdk": "^1.6.1", "@tavily/core": "^0.3.1", "ai": "^4.1.46", "chromadb-default-embed": "^2.13.2", "dotenv": "^16.4.7", "js-tiktoken": "^1.0.18", "openai": "^4.83.0", "p-defer": "^4.0.1", "uuid": "^11.1.0", "zod": "^3.24.2", "zod-to-json-schema": "^3.24.1" }, "peerDependencies": { "typescript": "^5.8.2" } }, "sha512-/i3XneM+/GCeJrZEgSoA2zXSSSkAjvkMYnKTtNn9He+dOzdGl1YEY2gOvMwKVwwgH/NNQzlpHnZEPAVgshTivA=="],
+    "@daydreamsai/core": ["@daydreamsai/core@0.2.17-alpha.0", "", { "dependencies": { "@ai-sdk/openai": "^1.1.14", "@langchain/core": "^0.3.39", "@langchain/textsplitters": "^0.1.0", "@modelcontextprotocol/sdk": "^1.6.1", "@tavily/core": "^0.3.1", "ai": "^4.1.46", "chromadb-default-embed": "^2.13.2", "dotenv": "^16.4.7", "js-tiktoken": "^1.0.18", "openai": "^4.83.0", "p-defer": "^4.0.1", "uuid": "^11.1.0", "zod": "^3.24.2", "zod-to-json-schema": "^3.24.1" }, "peerDependencies": { "typescript": "^5.8.2" } }, "sha512-w4QXMeg47P+PSkFOaxP4IlLx8lISVyamBJ5eqHdNaJIta582Sef35iu7dYgkyD+kDlmz4AxxF7EaLYLnwKoh4Q=="],
 
-    "@daydreamsai/discord": ["@daydreamsai/discord@0.2.16", "", { "dependencies": { "@daydreamsai/core": "0.2.16", "discord.js": "^14.18.0", "zod": "^3.24.2" }, "peerDependencies": { "typescript": "^5.6.3" } }, "sha512-k9WJnNBSY+HsPwUy+j7JoSKLrfRH/C7PnDAOH2ZnC+YZ9mRiCy5OhSAc92Js44pOx4tP2DEYaQ/sez37PMlvYA=="],
+    "@daydreamsai/discord": ["@daydreamsai/discord@0.2.17-alpha.0", "", { "dependencies": { "@daydreamsai/core": "0.2.17-alpha.0", "discord.js": "^14.18.0", "zod": "^3.24.2" }, "peerDependencies": { "typescript": "^5.6.3" } }, "sha512-s4hvHJD4dbKfSI73KgdOjRfzzEuk+MhlEdRuojgnSb+FjRmD2PO6ownu+86M6cvwDoaDNbFm7PZtOAlpxFHuZg=="],
 
     "@discordjs/builders": ["@discordjs/builders@1.10.1", "", { "dependencies": { "@discordjs/formatters": "^0.6.0", "@discordjs/util": "^1.1.1", "@sapphire/shapeshift": "^4.0.0", "discord-api-types": "^0.37.119", "fast-deep-equal": "^3.1.3", "ts-mixer": "^6.0.4", "tslib": "^2.6.3" } }, "sha512-OWo1fY4ztL1/M/DUyRPShB4d/EzVfuUvPTRRHRIt/YxBrUYSz0a+JicD5F5zHFoNs2oTuWavxCOVFV1UljHTng=="],
 

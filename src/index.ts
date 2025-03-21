@@ -43,10 +43,6 @@ const character = generateCharacter({
   seed: seed,
 });
 
-const models = [openrouter("deepseek/deepseek-r1-distill-llama-70b")];
-
-const model = models[Math.floor(seed % models.length)];
-
 const template = `
 
 This is the personality of the AI assistant:
@@ -171,7 +167,7 @@ async function initializeAgent() {
   try {
     const agent = createDreams({
       logger: LogLevel.INFO,
-      model: model,
+      model: openrouter("deepseek/deepseek-r1-distill-llama-70b"),
       context: goalContexts,
       extensions: [chat, eternum],
       container,

@@ -12,35 +12,19 @@ import { context } from "@daydreamsai/core";
 import { service } from "@daydreamsai/core";
 import type { ServiceProvider } from "@daydreamsai/core";
 import { LogLevel } from "@daydreamsai/core";
-import { Account, RpcProvider, type Call } from "starknet";
+import type { Call } from "starknet";
 import {
   getContract,
+  ownership_systems,
   troop_battle_systems,
   troop_movement_systems,
 } from "./extract";
-
-interface GraphQLResponse {
-  s1EternumExplorerTroopsModels: {
-    edges: Array<{
-      node: {
-        explorer_id: number;
-        coord: {
-          x: number;
-          y: number;
-        };
-        troops: {
-          category: string;
-          tier: number;
-          count: number;
-          stamina: {
-            amount: string;
-            updated_tick: string;
-          };
-        };
-      };
-    }>;
-  };
-}
+import { createNewAccount } from "./account";
+import {
+  EXPLORER_TROOPS_QUERY,
+  TROOPS_IN_RANGE_QUERY,
+  type GraphQLResponse,
+} from "./queries";
 
 interface StaminaValue {
   amount: string;
@@ -233,94 +217,28 @@ async function fetchCurrentTick(): Promise<number> {
   return Math.floor(currentTimestamp / TICKS.Armies);
 }
 
-const account_address =
-  "0x01BFC84464f990C09Cc0e5D64D18F54c3469fD5c467398BF31293051bAde1C39";
-const private_key =
-  "0x075362a844768f31c8058ce31aec3dd7751686440b4f220f410ae0c9bf042e60";
-const rpc_url =
-  "https://starknet-sepolia.blastapi.io/de586456-fa13-4575-9e6c-b73f9a88bc97/rpc/v0_7";
-
 const torii_url = "https://api.cartridge.gg/x/eternum-sepolia/torii/graphql";
 
-const explorer_id = parseInt(process.env.EVENT_DATA_1 || "190");
-
-const rpc = new RpcProvider({
-  nodeUrl: rpc_url,
-});
-
-const account = new Account(rpc, account_address, private_key);
-
-const EXPLORER_TROOPS_QUERY = `
-  query explorerTroopsInRange($explorer_id: Int!) {
-    s1EternumExplorerTroopsModels(
-      where: {explorer_id: $explorer_id}
-      first: 1000
-    ) {
-      edges {
-        node {
-          explorer_id
-          coord {
-            x
-            y
-          }
-          troops {
-            category
-            tier
-            count
-            stamina {
-              amount
-              updated_tick
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const TROOPS_IN_RANGE_QUERY = `
-  query troopsInRange($xMin: Int!, $xMax: Int!, $yMin: Int!, $yMax: Int!) {
-    s1EternumExplorerTroopsModels(
-      where: {coord: {xGT: $xMin, xLT: $xMax, yGT: $yMin, yLT: $yMax}}
-      first: 1000
-    ) {
-      edges {
-        node {
-          explorer_id
-          coord {
-            x
-            y
-          }
-          troops {
-            category
-            tier
-            count
-            stamina {
-              amount
-              updated_tick
-            }           
-          }
-        }
-      }
-    }
-  }
-`;
+const explorer_id = parseInt(process.env.EVENT_DATA_1 || "182");
 
 const template = `
-    You are explorer ${explorer_id}.
+    You are explorer  ${explorer_id}.
 
     <goal>
-    You should move around the map to discover new areas
+    1. You should move around the map to discover new areas.
+    2. You should attack other structures to gain resources.
+    3. You should attack other explorers to gain resources. You must be adjacent to the explorer to attack them, so move around the map to get close.
     </goal>
 
-    You are currently at coordinates x: {x}, y: {y}.
+    # consider
+    - You are currently at coordinates x: {x}, y: {y}.
+    - You should always check where you are on the map.
+    - If you hit an unexplored hex, you cannot move there. Just try a different direction.
 
-    You should always check where you are on the map.
+    # Map
+    You are on a hexagon map, so consider the shape of the map when making decisions.
 
-    If you hit an unexplored hex, you cannot move there. Just try a different direction.
-
-    You are on a hexagon map.
-
+    # Movement
     You can move in the following directions:
     0: Up
     1: Up-Right
@@ -329,11 +247,8 @@ const template = `
     4: Down-Left
     5: Up-Left
 
-    Try to move around the map to discover new areas.
 
-    You can attack other explorers or structures, and you should try to do so if you think you can win.
-
-    Eternum Context`;
+    `;
 
 const eternumContext = context({
   type: "eternum",
@@ -365,6 +280,9 @@ const eternumContext = context({
   },
 });
 
+// Initialize account
+const account = await createNewAccount();
+
 export const eternum = extension({
   name: "eternum",
   contexts: {
@@ -380,7 +298,7 @@ export const eternum = extension({
         `Recurring task triggered at ${new Date(timestamp).toISOString()}`,
       // Subscribe to timer events
       async subscribe(send) {
-        const intervalMs = 3 * 60 * 1000;
+        const intervalMs = 1 * 20 * 1000;
         console.log(
           `Setting up recurring task to run every ${intervalMs / 1000} seconds`
         );
@@ -595,6 +513,8 @@ export const eternum = extension({
             entrypoint: "explorer_move",
             calldata: [explorer_id, call.data.direction, 0],
           };
+
+          console.log("Moving explorer", moveCall);
 
           const { transaction_hash } = await account.execute(moveCall);
 
