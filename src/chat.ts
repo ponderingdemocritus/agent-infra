@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { extension, input, output } from "@daydreamsai/core";
 import { formatMsg } from "@daydreamsai/core";
-import ChatClient, { messageSchema } from "./chat-client";
+import ChatClient from "./chat-client";
 import { context } from "@daydreamsai/core";
 import { service } from "@daydreamsai/core";
 import { LogLevel } from "@daydreamsai/core";
@@ -38,20 +38,31 @@ const chatContext = context({
   key: ({ channelId }) => channelId,
   schema: z.object({ channelId: z.string() }),
 
-  async setup(args, { container }) {
-    const chatClient = container.resolve<ChatClient>("chat");
-
-    // Start the message stream when context is set up
-    chatClient.startMessageStream((data) => {
-      console.log("Message received:", data);
-      // This data can be used elsewhere if needed
-    });
-
-    return { channelId: args.channelId };
-  },
-
   description({}) {
-    return `Chat Channel ID`;
+    return `
+    
+    Your responses should reflect your character's personality traits, communication style, and motivations.
+    
+    CONTEXT INFORMATION:
+    - You are communicating in a chat channel with ID: {channelId}
+    - You can send direct messages, room messages, or global messages
+    - Direct messages are private between you and another user
+    - Room messages are sent to specific chat rooms
+    - Global messages are broadcast to all users
+    
+    MESSAGE TYPES:
+    - Use "chat:directMessage" when responding privately to a specific user
+    - Use "chat:roomMessage" when speaking in a specific room
+    - Use "chat:globalMessage" when broadcasting to everyone
+    
+    IMPORTANT GUIDELINES:
+    - Stay in character at all times
+    - Consider the context and history of the conversation
+    - Be responsive to the tone and content of incoming messages
+    - Provide helpful and engaging responses
+    - Only respond to messages that are relevant
+    
+    `;
   },
 });
 
@@ -174,7 +185,8 @@ export const chat = extension({
           content: z.string().describe("The content of the message to send"),
         })
         .describe("use this to send a message to a specific room"),
-      description: "Send a message to a specific room",
+      description:
+        "Send a message to a specific room. Use this when you want to communicate with a group of people in the same chat room or channel.",
       enabled({ context }) {
         return context.type === chatContext.type;
       },
@@ -208,7 +220,8 @@ export const chat = extension({
           content: z.string().describe("The content of the message to send"),
         })
         .describe("use this to send a global message to all users"),
-      description: "Send a global message to all users",
+      description:
+        "Send a global message to all users. Use this sparingly for important information that everyone needs to know.",
       enabled({ context }) {
         return context.type === chatContext.type;
       },

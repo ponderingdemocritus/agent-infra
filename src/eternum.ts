@@ -4,18 +4,13 @@ import {
   extension,
   fetchGraphQL,
   input,
-  output,
   render,
 } from "@daydreamsai/core";
-import { formatMsg } from "@daydreamsai/core";
+
 import { context } from "@daydreamsai/core";
-import { service } from "@daydreamsai/core";
-import type { ServiceProvider } from "@daydreamsai/core";
-import { LogLevel } from "@daydreamsai/core";
+
 import type { Call } from "starknet";
 import {
-  getContract,
-  ownership_systems,
   troop_battle_systems,
   troop_movement_systems,
   troop_raid_systems,
@@ -411,53 +406,7 @@ const eternumContext = context({
   key: ({ channelId }) => channelId,
   schema: z.object({ channelId: z.string() }),
 
-  async setup(args, { container }) {
-    // When context is first created, run the getMapInfo action to build initial state
-    try {
-      // Get current position
-      const positionResponse = await fetchGraphQL<GraphQLResponse>(
-        torii_url,
-        EXPLORER_TROOPS_QUERY,
-        {
-          explorer_id: explorer_id,
-        }
-      );
-
-      if (!(positionResponse instanceof Error)) {
-        const node =
-          positionResponse.s1EternumExplorerTroopsModels?.edges?.[0]?.node;
-        if (!node || !node.coord) {
-          console.error("Invalid response structure:", positionResponse);
-          return { channelId: args.channelId };
-        }
-        const { x, y } = node.coord;
-
-        // Fetch tiles around the current position
-        const tileResponse = await fetchGraphQL<GraphQLResponse>(
-          torii_url,
-          TILES_QUERY,
-          {
-            colMin: x - 15,
-            colMax: x + 15,
-            rowMin: y - 15,
-            rowMax: y + 15,
-          }
-        );
-
-        // If we have tile data, process it
-        if (
-          !(tileResponse instanceof Error) &&
-          tileResponse.s1EternumTileModels?.edges
-        ) {
-          logger.info("Initial map data loaded successfully");
-        }
-      }
-    } catch (error) {
-      logger.error("Error initializing map state", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
+  async setup(args, { context }) {
     return { channelId: args.channelId };
   },
 
@@ -987,6 +936,13 @@ export const eternum = extension({
               if (!memory.mapState.exploredTiles[tileKey]) {
                 return {
                   error: `Cannot move to unexplored tile at (${nextPos.x}, ${nextPos.y}) in direction ${direction}. Please use getMapInfo first to scan the area.`,
+                };
+              }
+
+              // Check if the tile is occupied
+              if (memory.mapState.exploredTiles[tileKey].occupier_id) {
+                return {
+                  error: `Cannot move to occupied tile at (${nextPos.x}, ${nextPos.y}) in direction ${direction}. This tile contains entity ID: ${memory.mapState.exploredTiles[tileKey].occupier_id}.`,
                 };
               }
 

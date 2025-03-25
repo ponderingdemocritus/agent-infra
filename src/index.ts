@@ -1,11 +1,9 @@
-// Import polyfills first
 import "./polyfill";
 
 import {
   context,
   createContainer,
   createDreams,
-  createMemoryStore,
   LogLevel,
   render,
   validateEnv,
@@ -18,20 +16,11 @@ import { chat } from "./chat";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { eternum } from "./eternum";
 
-// // Validate environment before proceeding
 validateEnv(
   z.object({
     OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
     ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
     // CHROMADB_URL: z.string().optional().default("http://chromadb:8001"),
-  })
-);
-
-const container = createContainer();
-
-container.singleton("tavily", () =>
-  tavily({
-    apiKey: process.env.TAVILY_API_KEY!,
   })
 );
 
@@ -170,7 +159,6 @@ async function initializeAgent() {
       model: openrouter("deepseek/deepseek-r1-distill-llama-70b"),
       context: goalContexts,
       extensions: [chat, eternum],
-      container,
       trimWorkingMemoryOptions: {
         thoughts: 3,
         inputs: 3,
@@ -191,12 +179,3 @@ async function initializeAgent() {
 
 // Start the agent
 initializeAgent();
-
-// event fires ingame
-// container spins up with new character
-// it starts playing the game and chatting in chat
-
-// scan the world see where they are
-// attack people
-// move around
-// explore the world
