@@ -171,6 +171,12 @@ async function initializeAgent() {
       context: goalContexts,
       extensions: [chat, eternum],
       container,
+      trimWorkingMemoryOptions: {
+        thoughts: 3,
+        inputs: 3,
+        outputs: 3,
+        actions: 3,
+      },
     }).start({ id: "test", initialGoal: "", initialTasks: [] });
 
     console.log("Starting Daydreams Discord Bot...");

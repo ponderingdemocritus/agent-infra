@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -90,6 +91,10 @@ var (
 	dockerClient     *client.Client
 	httpClient       *http.Client
 	log              = logrus.New()
+	
+	// Track the last container start time to enforce delay between startups
+	lastContainerStartTime = time.Now().Add(-30 * time.Second)
+	containerStartMutex    = &sync.Mutex{}
 
 	// API Keys from environment variables
 	anthropicAPIKey  = os.Getenv("ANTHROPIC_API_KEY")
@@ -478,6 +483,25 @@ func startEventEmittedListener(ctx context.Context, config StarknetConfig, filte
 	}
 }
 
+// Add this function to enforce the delay between container startups
+func enforceContainerStartDelay() {
+	containerStartMutex.Lock()
+	defer containerStartMutex.Unlock()
+	
+	// Calculate time since last container start
+	timeSinceLastStart := time.Since(lastContainerStartTime)
+	
+	// If less than 30 seconds have passed, wait for the remaining time
+	if timeSinceLastStart < 30*time.Second {
+		waitTime := 30*time.Second - timeSinceLastStart
+		log.Infof("Enforcing 30s delay between container startups. Waiting for %v...", waitTime)
+		time.Sleep(waitTime)
+	}
+	
+	// Update the last container start time
+	lastContainerStartTime = time.Now()
+}
+
 // handleEventEmitted specifically handles EventEmitted events
 func handleEventEmitted(event EventPayload) {
 	// Extract the keys from the event payload
@@ -566,6 +590,9 @@ func handleEventEmitted(event EventPayload) {
 	}
 
 	log.Infof("Processing EventEmitted event with selector: %s, matched key: %s", targetSelector, matchedKey)
+
+	// Enforce the delay between container startups
+	enforceContainerStartDelay()
 
 	// Use the existing handleEvent logic but adapt it for EventEmitted events
 	containerName := fmt.Sprintf("dreams-emitted-%s-%s", event.EventID, time.Now().Format("20060102-150405"))
@@ -668,6 +695,9 @@ func handleEvent(c *gin.Context) {
 	for k, v := range event.Environment {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
+
+	// Enforce the delay between container startups
+	enforceContainerStartDelay()
 
 	// Create container
 	resp, err := dockerClient.ContainerCreate(

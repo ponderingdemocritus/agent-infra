@@ -34,6 +34,8 @@ export const troop_movement_util_systems = getContract(
   "s1_eternum-troop_movement_util_systems"
 );
 
+export const troop_raid_systems = getContract("s1_eternum-troop_raid_systems");
+
 // ownership_systems
 
 export const ownership_systems = getContract("s1_eternum-ownership_systems");
