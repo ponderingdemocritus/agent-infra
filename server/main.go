@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
@@ -93,8 +94,17 @@ var (
 	log              = logrus.New()
 	
 	// Track the last container start time to enforce delay between startups
-	lastContainerStartTime = time.Now().Add(-30 * time.Second)
+	lastContainerStartTime = time.Now().Add(-60 * time.Second)
 	containerStartMutex    = &sync.Mutex{}
+
+	// WebSocket upgrader
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins in development
+		},
+	}
 
 	// API Keys from environment variables
 	anthropicAPIKey  = os.Getenv("ANTHROPIC_API_KEY")
@@ -102,12 +112,13 @@ var (
 	openrouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 
 	// Command line flags
-	startBlockNumber = flag.Int("block", 610722, "Block number to start listening from (0 means latest)")
-	contractAddress  = flag.String("contract", "0x4b8dd8a29839edc832089096d8c3882d1d74aea28b2da14f5ade3c08c08b4e", "Contract address to listen for events")
+	startBlockNumber = flag.Int("block", 627461, "Block number to start listening from (0 means latest)")
+	contractAddress  = flag.String("contract", "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23", "Contract address to listen for events")
 	eventSelector    = flag.String("selector", "0x4843fbb65c717bb5ece80d635a568aa1c688f880f0519e3de18bf3bae89abf8", "Event selector to filter for")
 	caseInsensitive  = flag.Bool("case-insensitive", true, "Whether to do case-insensitive comparison for the selector")
 	partialMatch     = flag.Bool("partial-match", true, "Whether to allow partial matches for the selector")
 	envFile          = flag.String("env-file", ".env", "Path to the .env file")
+	batchSize        = flag.Int("batch-size", 30, "Number of blocks to process in each batch")
 	
 	// Default Starknet configuration
 	defaultStarknetConfig = StarknetConfig{
@@ -117,7 +128,7 @@ var (
 
 	// Default event filter using the new EventEmittedFilter structure
 	defaultEventFilter = StarknetEventFilter{
-		ContractAddress: "0x4b8dd8a29839edc832089096d8c3882d1d74aea28b2da14f5ade3c08c08b4e",
+		ContractAddress: "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23",
 		FromBlock:      "latest",  // Start from latest block by default
 		// Filter for EventEmitted events with the specific selector
 		Keys:          [][]string{},
@@ -126,7 +137,7 @@ var (
 
 	// Default EventEmitted filter specifically for EventEmitted events
 	defaultEventEmittedFilter = EventEmittedFilter{
-		ContractAddress: "0x4b8dd8a29839edc832089096d8c3882d1d74aea28b2da14f5ade3c08c08b4e",
+		ContractAddress: "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23",
 		Keys:          [][]string{}, // Empty keys array to get all events
 		FromBlock:      "latest", // Will be updated based on command line flags
 		ChunkSize:      100,
@@ -328,6 +339,7 @@ func startEventEmittedListener(ctx context.Context, config StarknetConfig, filte
 	log.Infof("Starting Starknet EventEmitted listener for contract: %s", 
 		filter.ContractAddress)
 	log.Infof("Will filter for selector: %s in code", selector)
+	log.Infof("Processing blocks in batches of %d", *batchSize)
 	
 	// Determine the starting block
 	var currentBlockNumber int
@@ -395,79 +407,90 @@ func startEventEmittedListener(ctx context.Context, config StarknetConfig, filte
 				continue
 			}
 			
-			// Process blocks from currentBlockNumber to latestBlockNumber
-			for blockNum := currentBlockNumber; blockNum <= latestBlockNumber; blockNum++ {
-				// Create a copy of the filter for this request
+			// Process blocks in batches
+			for currentBlockNumber <= latestBlockNumber {
+				// Calculate the end block number for this batch
+				endBlockNumber := currentBlockNumber + *batchSize - 1
+				if endBlockNumber > latestBlockNumber {
+					endBlockNumber = latestBlockNumber
+				}
+				
+				// Create a copy of the filter for this batch request
 				requestFilter := filter
 				
-				// Set the from_block to the current block number
+				// Set the from_block and to_block for the batch
 				requestFilter.FromBlock = map[string]interface{}{
-					"block_number": blockNum,
+					"block_number": currentBlockNumber,
 				}
-				
-				// Set the to_block to the same block number to process one block at a time
 				requestFilter.ToBlock = map[string]interface{}{
-					"block_number": blockNum,
+					"block_number": endBlockNumber,
 				}
 				
-				blockKey := fmt.Sprintf("%d", blockNum)
+				log.Debugf("Checking for EventEmitted events in blocks %d to %d", currentBlockNumber, endBlockNumber)
 				
-				// Skip if we've already processed this block
-				if processedBlocks[blockKey] {
-					continue
-				}
-				
-				log.Debugf("Checking for EventEmitted events in block %d", blockNum)
-				
-				// Get events for this block
+				// Get events for this batch of blocks
 				events, err := getEvents(ctx, config, "", StarknetEventFilter(requestFilter))
 				if err != nil {
-					log.Errorf("Failed to fetch Starknet EventEmitted events for block %d: %v", blockNum, err)
-					continue
+					log.Errorf("Failed to fetch Starknet EventEmitted events for blocks %d to %d: %v", 
+						currentBlockNumber, endBlockNumber, err)
+					break
 				}
 				
 				if len(events) > 0 {
-					log.Infof("Found %d events in block %d", len(events), blockNum)
+					log.Infof("Found %d events in blocks %d to %d", len(events), currentBlockNumber, endBlockNumber)
 					
-					for i, event := range events {
-						// Log the event details for debugging
-						keysJSON, _ := json.Marshal(event.Keys)
-						log.Infof("Event %d in block %d: Keys: %s", i, blockNum, string(keysJSON))
+					// Group events by block number for better logging
+					eventsByBlock := make(map[int][]StarknetEvent)
+					for _, event := range events {
+						eventsByBlock[event.BlockNumber] = append(eventsByBlock[event.BlockNumber], event)
+					}
+					
+					// Process events for each block
+					for blockNum, blockEvents := range eventsByBlock {
+						log.Infof("Processing %d events in block %d", len(blockEvents), blockNum)
 						
-						// Create event payload
-						eventPayload := EventPayload{
-							EventID:   fmt.Sprintf("starknet-emitted-%d-%s-%d", blockNum, event.TransactionHash, event.EventIndex),
-							EventType: "starknet_event_emitted",
-							Payload: map[string]any{
-								"block_number":     blockNum,
-								"transaction_hash": event.TransactionHash,
-								"contract_address": event.FromAddress,
-								"keys":            event.Keys,
-								"data":            event.Data,
-								"event_index":     event.EventIndex,
-								"selector":        *eventSelector, // Use the command line selector
-							},
-							Environment: map[string]string{
-								"STARKNET_NETWORK": config.NetworkName,
-								"CONTRACT_ADDRESS": event.FromAddress,
-								"EVENT_SELECTOR":   *eventSelector, // Use the command line selector
-								"BLOCK_NUMBER":     fmt.Sprintf("%d", blockNum),
-							},
+						for i, event := range blockEvents {
+							// Log the event details for debugging
+							keysJSON, _ := json.Marshal(event.Keys)
+							log.Infof("Event %d in block %d: Keys: %s", i, blockNum, string(keysJSON))
+							
+							// Create event payload
+							eventPayload := EventPayload{
+								EventID:   fmt.Sprintf("starknet-emitted-%d-%s-%d", blockNum, event.TransactionHash, event.EventIndex),
+								EventType: "starknet_event_emitted",
+								Payload: map[string]any{
+									"block_number":     blockNum,
+									"transaction_hash": event.TransactionHash,
+									"contract_address": event.FromAddress,
+									"keys":            event.Keys,
+									"data":            event.Data,
+									"event_index":     event.EventIndex,
+									"selector":        *eventSelector,
+								},
+								Environment: map[string]string{
+									"STARKNET_NETWORK": config.NetworkName,
+									"CONTRACT_ADDRESS": event.FromAddress,
+									"EVENT_SELECTOR":   *eventSelector,
+									"BLOCK_NUMBER":     fmt.Sprintf("%d", blockNum),
+								},
+							}
+							
+							// Handle the event by creating a container
+							handleEventEmitted(eventPayload)
 						}
-						
-						// Handle the event by creating a container
-						handleEventEmitted(eventPayload)
 					}
 				} else {
-					log.Debugf("No events found in block %d", blockNum)
+					log.Debugf("No events found in blocks %d to %d", currentBlockNumber, endBlockNumber)
 				}
 				
-				// Mark this block as processed
-				processedBlocks[blockKey] = true
+				// Mark these blocks as processed
+				for blockNum := currentBlockNumber; blockNum <= endBlockNumber; blockNum++ {
+					processedBlocks[fmt.Sprintf("%d", blockNum)] = true
+				}
+				
+				// Move to the next batch
+				currentBlockNumber = endBlockNumber + 1
 			}
-			
-			// Update currentBlockNumber for the next iteration
-			currentBlockNumber = latestBlockNumber + 1
 			
 			// Limit the size of processedBlocks to avoid memory leaks
 			if len(processedBlocks) > 1000 {
@@ -491,10 +514,10 @@ func enforceContainerStartDelay() {
 	// Calculate time since last container start
 	timeSinceLastStart := time.Since(lastContainerStartTime)
 	
-	// If less than 30 seconds have passed, wait for the remaining time
-	if timeSinceLastStart < 30*time.Second {
-		waitTime := 30*time.Second - timeSinceLastStart
-		log.Infof("Enforcing 30s delay between container startups. Waiting for %v...", waitTime)
+	// If less than 60 seconds have passed, wait for the remaining time
+	if timeSinceLastStart < 60*time.Second {
+		waitTime := 60*time.Second - timeSinceLastStart
+		log.Infof("Enforcing 60s delay between container startups. Waiting for %v...", waitTime)
 		time.Sleep(waitTime)
 	}
 	
@@ -594,8 +617,11 @@ func handleEventEmitted(event EventPayload) {
 	// Enforce the delay between container startups
 	enforceContainerStartDelay()
 
-	// Use the existing handleEvent logic but adapt it for EventEmitted events
-	containerName := fmt.Sprintf("dreams-emitted-%s-%s", event.EventID, time.Now().Format("20060102-150405"))
+	// Create a more deterministic container name
+	// Format: dreams-emitted-{event_id}-{timestamp}
+	// timestamp format: YYYYMMDD-HHMMSS
+	timestamp := time.Now().Format("20060102-150405")
+	containerName := fmt.Sprintf("dreams-emitted-%s-%s", event.EventID, timestamp)
 
 	// If event.Environment is nil, initialize it
 	if event.Environment == nil {
@@ -765,12 +791,145 @@ func stopContainer(c *gin.Context) {
 	})
 }
 
+// streamContainerLogs handles WebSocket connections for container logs
+func streamContainerLogs(c *gin.Context) {
+	containerID := c.Param("container_id")
+	
+	// Check if container exists
+	_, exists := activeContainers[containerID]
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Container not found"})
+		return
+	}
+
+	// Set CORS headers
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+	c.Header("Access-Control-Allow-Headers", "Origin, Content-Type")
+
+	// Handle preflight requests
+	if c.Request.Method == "OPTIONS" {
+		c.Status(http.StatusOK)
+		return
+	}
+
+	// Upgrade HTTP connection to WebSocket
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Errorf("Failed to upgrade connection: %v", err)
+		return
+	}
+	defer ws.Close()
+
+	// Set read/write deadlines
+	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+
+	// Get container logs
+	ctx := context.Background()
+	logs, err := dockerClient.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Tail:       "100", // Start with last 100 lines
+		Timestamps:  true,
+	})
+	if err != nil {
+		log.Errorf("Failed to get container logs: %v", err)
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+		return
+	}
+	defer logs.Close()
+
+	// Create a goroutine to read logs and send them to the WebSocket
+	go func() {
+		defer ws.Close()
+		defer logs.Close()
+
+		// Create a buffer to store the log data
+		buf := make([]byte, 32*1024) // 32KB buffer
+		for {
+			n, err := logs.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Errorf("Error reading logs: %v", err)
+				}
+				return
+			}
+
+			// Send the raw log data as a binary message
+			if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				log.Errorf("Error writing to WebSocket: %v", err)
+				return
+			}
+
+			// Reset write deadline after each write
+			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		}
+	}()
+
+	// Keep the connection alive and handle client messages
+	for {
+		messageType, message, err := ws.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Errorf("WebSocket error: %v", err)
+			}
+			break
+		}
+
+		// Reset read deadline after each read
+		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+		// Echo the message back (can be used for ping/pong or other control messages)
+		if err := ws.WriteMessage(messageType, message); err != nil {
+			log.Errorf("Error writing to WebSocket: %v", err)
+			break
+		}
+	}
+}
+
+// Add this function to get container ID by name
+func getContainerIDByName(name string) (string, error) {
+	containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
+		All: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list containers: %v", err)
+	}
+
+	for _, container := range containers {
+		// Check both the container name and any aliases
+		for _, containerName := range container.Names {
+			// Docker container names start with a slash, so we need to trim it
+			containerName = strings.TrimPrefix(containerName, "/")
+			if containerName == name {
+				return container.ID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("container not found: %s", name)
+}
+
+// Add this new endpoint handler
+func getContainerByName(c *gin.Context) {
+	name := c.Param("name")
+	containerID, err := getContainerIDByName(name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"container_id": containerID})
+}
+
 func main() {
 	r := gin.Default()
 
 	r.POST("/event", handleEvent)
 	r.GET("/containers/:container_id", getContainerStatus)
 	r.DELETE("/containers/:container_id", stopContainer)
+	r.GET("/containers/:container_id/logs", streamContainerLogs)
+	r.GET("/containers/name/:name", getContainerByName) // Add this new route
 
 	// Display current configuration
 	log.Info("Starting Dreams Container Manager...")

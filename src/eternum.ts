@@ -404,9 +404,10 @@ const template = `
 const eternumContext = context({
   type: "eternum",
   key: ({ channelId }) => channelId,
+  maxWorkingMemorySize: 5,
   schema: z.object({ channelId: z.string() }),
 
-  async setup(args, { context }) {
+  async setup(args, {}, { context }) {
     return { channelId: args.channelId };
   },
 
@@ -596,7 +597,7 @@ export const eternum = extension({
         `Recurring task triggered at ${new Date(timestamp).toISOString()}`,
       // Subscribe to timer events
       async subscribe(send) {
-        const intervalMs = 1 * 20 * 1000;
+        const intervalMs = 1 * 60 * 1000;
         logger.info("Setting up recurring task", {
           interval_seconds: intervalMs / 1000,
         });
@@ -805,7 +806,7 @@ export const eternum = extension({
             };
           });
 
-        const memory = ctx.agentMemory;
+        const memory = ctx.memory;
         memory.surrounding = processedTroops;
 
         return {
@@ -870,7 +871,7 @@ export const eternum = extension({
           },
         };
 
-        const memory = ctx.agentMemory;
+        const memory = ctx.memory;
         memory.x = x;
         memory.y = y;
         memory.processedTroops = processedTroop;
@@ -923,11 +924,11 @@ export const eternum = extension({
           const currentY = memory.y;
 
           // Validate that the tiles we're trying to move to have been explored
-          if (call.data.direction && call.data.direction.length > 0) {
+          if (call.direction && call.direction.length > 0) {
             let posX = currentX;
             let posY = currentY;
 
-            for (const direction of call.data.direction) {
+            for (const direction of call.direction) {
               // Get the next position based on the direction
               const nextPos = getNeighborCoord(posX, posY, direction);
 
@@ -955,13 +956,14 @@ export const eternum = extension({
           const moveCall: Call = {
             contractAddress: troop_movement_systems!,
             entrypoint: "explorer_move",
-            calldata: [explorer_id, call.data.direction, 0],
+            calldata: [explorer_id, call.direction, 0],
           };
 
           logger.info("Moving explorer", {
             explorer_id,
-            directions: call.data.direction,
+            directions: call.direction,
             contract: troop_movement_systems,
+            account: account.address,
           });
 
           const { transaction_hash } = await account.execute(moveCall);
@@ -970,11 +972,11 @@ export const eternum = extension({
 
           // Update the agent memory with the new position (assuming the move was successful)
           // We'll do a proper update in the next getMapInfo call
-          if (call.data.direction && call.data.direction.length > 0) {
+          if (call.direction && call.direction.length > 0) {
             let posX = currentX;
             let posY = currentY;
 
-            for (const direction of call.data.direction) {
+            for (const direction of call.direction) {
               const nextPos = getNeighborCoord(posX, posY, direction);
               posX = nextPos.x;
               posY = nextPos.y;
@@ -990,7 +992,7 @@ export const eternum = extension({
           logger.error("Error moving explorer", {
             error: error instanceof Error ? error.message : String(error),
             explorer_id,
-            directions: call.data.direction,
+            directions: call.direction,
           });
 
           // Extract more detailed error message if available
@@ -1036,17 +1038,14 @@ export const eternum = extension({
       async handler(call, ctx, agent) {
         try {
           // Get the current position and map state from memory
-          const memory = ctx.agentMemory;
+          const memory = ctx.memory;
           const currentX = memory.x;
           const currentY = memory.y;
 
           // Validate that the direction is valid (0-5)
-          if (
-            call.data.defender_direction < 0 ||
-            call.data.defender_direction > 5
-          ) {
+          if (call.defender_direction < 0 || call.defender_direction > 5) {
             return {
-              error: `Invalid direction: ${call.data.defender_direction}. Direction must be between 0 and 5.`,
+              error: `Invalid direction: ${call.defender_direction}. Direction must be between 0 and 5.`,
             };
           }
 
@@ -1054,14 +1053,14 @@ export const eternum = extension({
           const targetPos = getNeighborCoord(
             currentX,
             currentY,
-            call.data.defender_direction
+            call.defender_direction
           );
           const tileKey = `${targetPos.x},${targetPos.y}`;
 
           // Make sure the tile is explored first
           if (!memory.mapState.exploredTiles[tileKey]) {
             return {
-              error: `No explored tile in direction ${call.data.defender_direction}. Please use getMapInfo first to scan the area.`,
+              error: `No explored tile in direction ${call.defender_direction}. Please use getMapInfo first to scan the area.`,
             };
           }
 
@@ -1069,13 +1068,13 @@ export const eternum = extension({
           const adjacentEntities = memory.mapState.adjacentEntities || [];
           const targetEntity = adjacentEntities.find(
             (entity: { direction: number; occupier_id: number }) =>
-              entity.direction === call.data.defender_direction &&
-              entity.occupier_id === call.data.defender_id
+              entity.direction === call.defender_direction &&
+              entity.occupier_id === call.defender_id
           );
 
           if (!targetEntity) {
             return {
-              error: `No entity with ID ${call.data.defender_id} found in direction ${call.data.defender_direction}. Please use getMapInfo first to update your surroundings.`,
+              error: `No entity with ID ${call.defender_id} found in direction ${call.defender_direction}. Please use getMapInfo first to update your surroundings.`,
             };
           }
 
@@ -1083,9 +1082,9 @@ export const eternum = extension({
             contractAddress: troop_battle_systems!,
             entrypoint: "attack_explorer_vs_explorer",
             calldata: [
-              call.data.aggressor_id,
-              call.data.defender_id,
-              call.data.defender_direction,
+              call.aggressor_id,
+              call.defender_id,
+              call.defender_direction,
             ],
           };
 
@@ -1097,9 +1096,9 @@ export const eternum = extension({
         } catch (error) {
           logger.error("Error attacking explorer", {
             error: error instanceof Error ? error.message : String(error),
-            aggressor_id: call.data.aggressor_id,
-            defender_id: call.data.defender_id,
-            direction: call.data.defender_direction,
+            aggressor_id: call.aggressor_id,
+            defender_id: call.defender_id,
+            direction: call.defender_direction,
           });
 
           // Extract more detailed error message if available
@@ -1111,6 +1110,7 @@ export const eternum = extension({
         }
       },
     }),
+
     action({
       name: "attackStructure",
       description:
@@ -1129,17 +1129,14 @@ export const eternum = extension({
       async handler(call, ctx, agent) {
         try {
           // Get the current position and map state from memory
-          const memory = ctx.agentMemory;
+          const memory = ctx.memory;
           const currentX = memory.x;
           const currentY = memory.y;
 
           // Validate that the direction is valid (0-5)
-          if (
-            call.data.structure_direction < 0 ||
-            call.data.structure_direction > 5
-          ) {
+          if (call.structure_direction < 0 || call.structure_direction > 5) {
             return {
-              error: `Invalid direction: ${call.data.structure_direction}. Direction must be between 0 and 5.`,
+              error: `Invalid direction: ${call.structure_direction}. Direction must be between 0 and 5.`,
             };
           }
 
@@ -1147,14 +1144,14 @@ export const eternum = extension({
           const targetPos = getNeighborCoord(
             currentX,
             currentY,
-            call.data.structure_direction
+            call.structure_direction
           );
           const tileKey = `${targetPos.x},${targetPos.y}`;
 
           // Make sure the tile is explored first
           if (!memory.mapState.exploredTiles[tileKey]) {
             return {
-              error: `No explored tile in direction ${call.data.structure_direction}. Please use getMapInfo first to scan the area.`,
+              error: `No explored tile in direction ${call.structure_direction}. Please use getMapInfo first to scan the area.`,
             };
           }
 
@@ -1162,13 +1159,13 @@ export const eternum = extension({
           const adjacentEntities = memory.mapState.adjacentEntities || [];
           const targetEntity = adjacentEntities.find(
             (entity: { direction: number; occupier_id: number }) =>
-              entity.direction === call.data.structure_direction &&
-              entity.occupier_id === call.data.structure_id
+              entity.direction === call.structure_direction &&
+              entity.occupier_id === call.structure_id
           );
 
           if (!targetEntity) {
             return {
-              error: `No structure with ID ${call.data.structure_id} found in direction ${call.data.structure_direction}. Please use getMapInfo first to update your surroundings.`,
+              error: `No structure with ID ${call.structure_id} found in direction ${call.structure_direction}. Please use getMapInfo first to update your surroundings.`,
             };
           }
 
@@ -1176,17 +1173,17 @@ export const eternum = extension({
             contractAddress: troop_raid_systems!,
             entrypoint: "raid_explorer_vs_guard",
             calldata: [
-              call.data.explorer_id,
-              call.data.structure_id,
-              call.data.structure_direction,
+              call.explorer_id,
+              call.structure_id,
+              call.structure_direction,
               [10, 2000],
             ],
           };
 
           logger.info("Attacking structure", {
-            explorer_id: call.data.explorer_id,
-            structure_id: call.data.structure_id,
-            direction: call.data.structure_direction,
+            explorer_id: call.explorer_id,
+            structure_id: call.structure_id,
+            direction: call.structure_direction,
             contract: troop_raid_systems,
           });
 
@@ -1198,9 +1195,9 @@ export const eternum = extension({
         } catch (error) {
           logger.error("Error attacking structure", {
             error: error instanceof Error ? error.message : String(error),
-            explorer_id: call.data.explorer_id,
-            structure_id: call.data.structure_id,
-            direction: call.data.structure_direction,
+            explorer_id: call.explorer_id,
+            structure_id: call.structure_id,
+            direction: call.structure_direction,
           });
 
           // Extract more detailed error message if available
@@ -1247,7 +1244,7 @@ export const eternum = extension({
           const { x, y } = node.coord;
 
           // Set radius (default 15 if not provided)
-          const radius = call.data.radius || 15;
+          const radius = call.radius || 15;
 
           // Convert from cartesian (x,y) to axial (col,row) coordinates for the hexagonal grid
           // This is a simple conversion for hexagonal grid
@@ -1341,7 +1338,7 @@ export const eternum = extension({
           logger.error("Error building map state", {
             error: error instanceof Error ? error.message : String(error),
             explorer_id,
-            radius: call.data.radius || 15,
+            radius: call.radius || 15,
           });
 
           return {

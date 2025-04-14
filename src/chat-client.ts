@@ -167,8 +167,10 @@ class ChatClient {
         threadId: "global",
         directMessage: false,
         contentId: Date.now().toString(),
+        roomId: "global",
         data: {
           content: message,
+          roomId: "global",
         },
       });
     });

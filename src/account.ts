@@ -20,6 +20,10 @@ const rpc_url =
 const argentXaccountClassHash =
   "0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f";
 
+// Max retry attempts and delay between retries
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 2000;
+
 // Initialize RPC provider
 export const rpc = new RpcProvider({
   nodeUrl: rpc_url,
@@ -27,6 +31,41 @@ export const rpc = new RpcProvider({
 
 // Create master account
 export const masterAccount = new Account(rpc, account_address, private_key);
+
+// Helper function to execute transactions with retry mechanism
+export const executeWithRetry = async (
+  account: Account,
+  calls: Call | Call[],
+  maxRetries = MAX_RETRIES
+) => {
+  let retries = 0;
+
+  while (retries <= maxRetries) {
+    try {
+      const { transaction_hash } = await account.execute(calls);
+      await account.waitForTransaction(transaction_hash);
+      return transaction_hash;
+    } catch (error: any) {
+      retries++;
+      console.log(`Transaction attempt ${retries} failed: ${error.message}`);
+
+      if (retries > maxRetries) {
+        throw new Error(
+          `Failed after ${maxRetries} attempts: ${error.message}`
+        );
+      }
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+
+      // If it's a nonce issue, try to refresh the nonce
+      if (error.message && error.message.includes("nonce")) {
+        console.log("Detected nonce issue, refreshing nonce...");
+        await account.getNonce().catch(() => {}); // Refresh nonce
+      }
+    }
+  }
+};
 
 // Create new account
 export const createNewAccount = async () => {
@@ -62,25 +101,34 @@ export const createNewAccount = async () => {
     console.error("Error transferring ETH:", error);
   }
 
-  const { transaction_hash, contract_address } = await account.deployAccount({
-    classHash: argentXaccountClassHash,
-    constructorCalldata: AXConstructorCallData,
-    addressSalt: starkKeyPub,
-  });
+  try {
+    const { transaction_hash, contract_address } = await account.deployAccount({
+      classHash: argentXaccountClassHash,
+      constructorCalldata: AXConstructorCallData,
+      addressSalt: starkKeyPub,
+    });
 
-  await rpc.waitForTransaction(transaction_hash);
-  console.log(
-    "✅ New ArgentX account created.\n   address =",
-    contract_address
-  );
+    await rpc.waitForTransaction(transaction_hash);
+    console.log(
+      "✅ New ArgentX account created.\n   address =",
+      contract_address
+    );
 
-  await transferAccount(
-    parseInt(process.env.EVENT_DATA_1 || "182"),
-    contract_address
-  );
-  console.log("✅ Account transferred");
+    await transferAccount(
+      parseInt(process.env.EVENT_DATA_1 || "182"),
+      contract_address
+    );
+    console.log(
+      "✅ Account transferred to ",
+      contract_address,
+      parseInt(process.env.EVENT_DATA_1 || "182")
+    );
 
-  return account;
+    return account;
+  } catch (error) {
+    console.error("Error deploying account:", error);
+    throw error;
+  }
 };
 
 // Transfer ETH
@@ -92,8 +140,7 @@ export const transferEth = async (to: string, amount: string) => {
     calldata: [to, amount, "0"],
   };
 
-  const { transaction_hash } = await masterAccount.execute(moveCall);
-  await masterAccount.waitForTransaction(transaction_hash);
+  return await executeWithRetry(masterAccount, moveCall);
 };
 
 // Transfer account ownership
@@ -107,6 +154,5 @@ export const transferAccount = async (
     calldata: [explorer_id, new_owner],
   };
 
-  const { transaction_hash } = await masterAccount.execute(moveCall);
-  await masterAccount.waitForTransaction(transaction_hash);
+  return await executeWithRetry(masterAccount, moveCall);
 };
