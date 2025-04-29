@@ -66,6 +66,7 @@ export const TILES_QUERY = `
           col
           row
           occupier_id
+          occupier_type
         }
       }
     }

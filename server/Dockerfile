@@ -1,24 +1,35 @@
-FROM golang:1.21-alpine
+# Stage 1: Build the Go binary
+FROM golang:1.23 AS builder
 
+# Set the Current Working Directory inside the container
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache gcc musl-dev git
-
-# Copy go mod files
+# Copy go mod and sum files
 COPY go.mod go.sum ./
 
-# Download dependencies
+# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
 RUN go mod download
 
-# Copy source code
+# Copy the source code into the container
 COPY . .
 
-# Build the application
-RUN go build -o main .
+# Build the Go app - Creates a static binary
+# Use CGO_ENABLED=0 for a static binary suitable for minimal base images like alpine
+# GOOS=linux is important as GKE nodes run Linux
+RUN CGO_ENABLED=0 GOOS=linux go build -v -o chairman-server .
 
-# Expose the port the app runs on
+# Stage 2: Create the final, minimal image
+FROM alpine:latest
+
+# Set the Current Working Directory inside the container
+WORKDIR /app
+
+# Copy the Pre-built binary file from the previous stage
+COPY --from=builder /app/chairman-server .
+
+# Expose port 8000 to the outside world
 EXPOSE 8000
 
-# Run the application
-CMD ["./main"] 
+# Command to run the executable when the container starts
+# The flags will be passed via the Kubernetes Deployment manifest later
+CMD ["./chairman-server"]

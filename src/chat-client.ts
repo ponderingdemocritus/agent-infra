@@ -47,8 +47,6 @@ class ChatClient {
     this.username = username;
     this.logger = new Logger({
       level: logLevel,
-      enableColors: true,
-      enableTimestamp: true,
     });
 
     this.setupListeners();

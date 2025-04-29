@@ -11,16 +11,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
+
+	// Add Kubernetes imports
+	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type StarknetEventFilter struct {
@@ -52,13 +56,6 @@ type EventPayload struct {
 	Environment map[string]string `json:"environment,omitempty"`
 }
 
-type ContainerStatus struct {
-	ContainerID string    `json:"container_id"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	EventID     string    `json:"event_id"`
-}
-
 // Starknet RPC request/response types
 type StarknetRPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
@@ -88,14 +85,11 @@ type StarknetEvent struct {
 }
 
 var (
-	activeContainers = make(map[string]ContainerStatus)
-	dockerClient     *client.Client
-	httpClient       *http.Client
-	log              = logrus.New()
-	
-	// Track the last container start time to enforce delay between startups
-	lastContainerStartTime = time.Now().Add(-60 * time.Second)
-	containerStartMutex    = &sync.Mutex{}
+	// Add Kubernetes clientset
+	kubernetesClientset *kubernetes.Clientset
+
+	httpClient *http.Client
+	log        = logrus.New()
 
 	// WebSocket upgrader
 	upgrader = websocket.Upgrader{
@@ -119,6 +113,10 @@ var (
 	partialMatch     = flag.Bool("partial-match", true, "Whether to allow partial matches for the selector")
 	envFile          = flag.String("env-file", ".env", "Path to the .env file")
 	batchSize        = flag.Int("batch-size", 30, "Number of blocks to process in each batch")
+	kubeconfigPath   = flag.String("kubeconfig", "", "Path to kubeconfig file (optional, defaults to ~/.kube/config or in-cluster)")
+	namespace        = flag.String("namespace", "default", "Kubernetes namespace to launch jobs in")
+	agentImage       = flag.String("agent-image", "chairman-app:latest", "Docker image for the agent container")
+	agentServiceAccount = flag.String("agent-service-account", "", "ServiceAccount name for agent pods (optional)")
 	
 	// Default Starknet configuration
 	defaultStarknetConfig = StarknetConfig{
@@ -175,11 +173,44 @@ func init() {
 		log.Warn("OPENROUTER_API_KEY environment variable not set")
 	}
 	
+	var config *rest.Config
 	var err error
-	dockerClient, err = client.NewClientWithOpts(client.FromEnv)
+
+	// Try in-cluster config first
+	config, err = rest.InClusterConfig()
 	if err != nil {
-		log.Fatalf("Failed to create Docker client: %v", err)
+		log.Warnf("Failed to get in-cluster config: %v. Trying kubeconfig.", err)
+		// Fall back to kubeconfig
+		// Use user-provided path or default kubeconfig location
+		var kubeconfigPathResolved string
+		if *kubeconfigPath != "" {
+			kubeconfigPathResolved = *kubeconfigPath
+		} else {
+			// Use clientcmd convenience function to find default kubeconfig path
+			// This avoids needing the homedir import directly here
+			loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+			kubeconfigPathResolved = loadingRules.GetDefaultFilename()
+		}
+
+		if _, errStat := os.Stat(kubeconfigPathResolved); os.IsNotExist(errStat) {
+			log.Fatalf("Kubeconfig file not found at %s and not running in-cluster.", kubeconfigPathResolved)
+		}
+
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPathResolved) // Use clientcmd here
+		if err != nil {
+			log.Fatalf("Failed to build config from kubeconfig %s: %v", kubeconfigPathResolved, err)
+		}
+		log.Infof("Using kubeconfig: %s", kubeconfigPathResolved)
+	} else {
+		log.Info("Using in-cluster Kubernetes config")
 	}
+
+	// Fix: Pass only the config to NewForConfig
+	kubernetesClientset, err = kubernetes.NewForConfig(config) // Remove second argument
+	if err != nil {
+		log.Fatalf("Failed to create Kubernetes client: %v", err)
+	}
+	log.Info("Successfully created Kubernetes client")
 
 	// Initialize HTTP client
 	httpClient = &http.Client{
@@ -506,25 +537,6 @@ func startEventEmittedListener(ctx context.Context, config StarknetConfig, filte
 	}
 }
 
-// Add this function to enforce the delay between container startups
-func enforceContainerStartDelay() {
-	containerStartMutex.Lock()
-	defer containerStartMutex.Unlock()
-	
-	// Calculate time since last container start
-	timeSinceLastStart := time.Since(lastContainerStartTime)
-	
-	// If less than 60 seconds have passed, wait for the remaining time
-	if timeSinceLastStart < 60*time.Second {
-		waitTime := 60*time.Second - timeSinceLastStart
-		log.Infof("Enforcing 60s delay between container startups. Waiting for %v...", waitTime)
-		time.Sleep(waitTime)
-	}
-	
-	// Update the last container start time
-	lastContainerStartTime = time.Now()
-}
-
 // handleEventEmitted specifically handles EventEmitted events
 func handleEventEmitted(event EventPayload) {
 	// Extract the keys from the event payload
@@ -614,83 +626,177 @@ func handleEventEmitted(event EventPayload) {
 
 	log.Infof("Processing EventEmitted event with selector: %s, matched key: %s", targetSelector, matchedKey)
 
-	// Enforce the delay between container startups
-	enforceContainerStartDelay()
-
-	// Create a more deterministic container name
-	// Format: dreams-emitted-{event_id}-{timestamp}
-	// timestamp format: YYYYMMDD-HHMMSS
-	timestamp := time.Now().Format("20060102-150405")
-	containerName := fmt.Sprintf("dreams-emitted-%s-%s", event.EventID, timestamp)
-
-	// If event.Environment is nil, initialize it
-	if event.Environment == nil {
-		event.Environment = make(map[string]string)
+	// Generate a Kubernetes-compatible job name (DNS-1123 subdomain)
+	// Max length 63 chars, lowercase alphanumeric, '-', start/end with alphanumeric
+	jobNameBase := fmt.Sprintf("agent-%s", event.EventID)
+	// Sanitize and shorten if necessary
+	jobNameBase = strings.ToLower(jobNameBase)
+	jobNameBase = strings.ReplaceAll(jobNameBase, "_", "-") // Replace underscores
+	// Replace any invalid characters (example: keep only a-z, 0-9, -)
+	var sanitizedName strings.Builder
+	for _, r := range jobNameBase {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			sanitizedName.WriteRune(r)
+		}
 	}
+	jobNameBase = sanitizedName.String()
+	if len(jobNameBase) > 50 { // Leave room for potential suffix
+		jobNameBase = jobNameBase[:50]
+	}
+	// Ensure it doesn't end with '-'
+	jobNameBase = strings.TrimSuffix(jobNameBase, "-")
+	// Add a timestamp or random suffix to ensure uniqueness if needed, though Job controller handles this.
+	// Let's use the base name directly for now. Kubernetes will add a unique suffix to the Pod name.
+	jobName := jobNameBase
 
-	// Add the required API keys to the environment map
-	// event.Environment["SEED"] = "'$RANDOM_SEED'"
-	event.Environment["ANTHROPIC_API_KEY"] = anthropicAPIKey
-	event.Environment["OPENAI_API_KEY"] = openaiAPIKey
-	event.Environment["OPENROUTER_API_KEY"] = openrouterAPIKey
-
-	// Prepare environment variables
-	env := []string{
-		fmt.Sprintf("EVENT_ID=%s", event.EventID),
-		fmt.Sprintf("EVENT_TYPE=%s", event.EventType),
-		fmt.Sprintf("EVENT_SELECTOR=%s", targetSelector),
+	// Prepare environment variables for the agent Pod
+	envVars := []v1.EnvVar{
+		{Name: "EVENT_ID", Value: event.EventID},
+		{Name: "EVENT_TYPE", Value: event.EventType},
+		{Name: "EVENT_SELECTOR", Value: targetSelector},
+		// Add keys
+		{Name: "EVENT_KEYS_JSON", Value: toJsonString(keys)}, // Pass keys as JSON string
+		// Add data
+		{Name: "EVENT_DATA_JSON", Value: toJsonString(data)}, // Pass data as JSON string
 	}
 	
-	// Add keys to environment variables - this is what we care about
+	// Add EVENT_KEY_N and EVENT_DATA_N if needed by the agent, but JSON is often easier
+	/*
 	for i, key := range keys {
-		env = append(env, fmt.Sprintf("EVENT_KEY_%d=%s", i, key))
+		envVars = append(envVars, v1.EnvVar{Name: fmt.Sprintf("EVENT_KEY_%d", i), Value: key})
 	}
-	
-	// Add data/values to environment variables
 	for i, val := range data {
-		env = append(env, fmt.Sprintf("EVENT_DATA_%d=%s", i, val))
+		envVars = append(envVars, v1.EnvVar{Name: fmt.Sprintf("EVENT_DATA_%d", i), Value: val})
+	}
+	*/
+	
+	// Add other environment variables from the event payload
+	if event.Environment != nil {
+		for k, v := range event.Environment {
+			// Skip API keys here, use Secrets or downward API for those in agent
+			if k != "ANTHROPIC_API_KEY" && k != "OPENAI_API_KEY" && k != "OPENROUTER_API_KEY" {
+				envVars = append(envVars, v1.EnvVar{Name: k, Value: v})
+			}
+		}
 	}
 	
-	// Add other relevant information
-	for k, v := range event.Environment {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	// **IMPORTANT**: Add API Keys securely. Best practice is using Kubernetes Secrets.
+	// Option 1: Mount Secrets as Env Vars (Recommended)
+	// Assumes you have Secrets named 'agent-api-keys' with keys 'anthropic-api-key', 'openai-api-key', etc.
+	envVars = append(envVars, v1.EnvVar{
+		Name: "ANTHROPIC_API_KEY",
+		ValueFrom: &v1.EnvVarSource{
+			SecretKeyRef: &v1.SecretKeySelector{
+				LocalObjectReference: v1.LocalObjectReference{Name: "agent-api-keys"}, // CHANGE_ME: Your secret name
+				Key:                  "anthropic-api-key",        // CHANGE_ME: Key within the secret
+				Optional:             func(b bool) *bool { return &b }(true), // Make optional if key might not exist
+			},
+		},
+	})
+	envVars = append(envVars, v1.EnvVar{
+		Name: "OPENAI_API_KEY",
+		ValueFrom: &v1.EnvVarSource{
+			SecretKeyRef: &v1.SecretKeySelector{
+				LocalObjectReference: v1.LocalObjectReference{Name: "agent-api-keys"}, // CHANGE_ME
+				Key:                  "openai-api-key",         // CHANGE_ME
+				Optional:             func(b bool) *bool { return &b }(true),
+			},
+		},
+	})
+	envVars = append(envVars, v1.EnvVar{
+		Name: "OPENROUTER_API_KEY",
+		ValueFrom: &v1.EnvVarSource{
+			SecretKeyRef: &v1.SecretKeySelector{
+				LocalObjectReference: v1.LocalObjectReference{Name: "agent-api-keys"}, // CHANGE_ME
+				Key:                  "openrouter-api-key",     // CHANGE_ME
+				Optional:             func(b bool) *bool { return &b }(true),
+			},
+		},
+	})
+	
+	// Option 2: Pass keys from server env (Less Secure, only for testing/simplicity if needed)
+	/*
+	 if anthropicAPIKey != "" { envVars = append(envVars, v1.EnvVar{Name: "ANTHROPIC_API_KEY", Value: anthropicAPIKey}) }
+	 if openaiAPIKey != "" { envVars = append(envVars, v1.EnvVar{Name: "OPENAI_API_KEY", Value: openaiAPIKey}) }
+	 if openrouterAPIKey != "" { envVars = append(envVars, v1.EnvVar{Name: "OPENROUTER_API_KEY", Value: openrouterAPIKey}) }
+	*/
+
+	// Define the Job
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: *namespace,
+			Labels: map[string]string{ // Labels for finding/managing jobs later
+				"app":       "chairman-agent",
+				"event-id":  event.EventID, // Use valid label value format
+				"selector":  targetSelector, // Maybe sanitize this if needed
+			},
+		},
+		Spec: batchv1.JobSpec{
+			// TTLSecondsAfterFinished: PtrInt32(3600), // Optional: Auto-cleanup finished jobs after 1 hour
+			BackoffLimit: PtrInt32(1), // Optional: Retry once on failure
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{ // Pods also get labels
+						"app":      "chairman-agent",
+						"event-id": event.EventID,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:  "agent-container",
+							Image: *agentImage, // Use the image specified by flag
+							Env:   envVars,
+							// Add resource requests/limits if known
+							/*
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("100m"), // 0.1 CPU core
+									v1.ResourceMemory: resource.MustParse("128Mi"), // 128 MiB RAM
+								},
+								Limits: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("500m"), // 0.5 CPU core
+									v1.ResourceMemory: resource.MustParse("512Mi"), // 512 MiB RAM
+								},
+							},
+							*/
+						},
+					},
+					RestartPolicy: v1.RestartPolicyNever, // Or OnFailure if container might exit non-zero legitimately
+					// Assign a ServiceAccount if the agent needs specific K8s permissions
+					ServiceAccountName: *agentServiceAccount,
+				},
+			},
+		},
 	}
 
-	// Create container
-	resp, err := dockerClient.ContainerCreate(
-		context.Background(),
-		&container.Config{
-			Image: "chairman-app:latest",
-			Env:   env,
-		},
-		&container.HostConfig{
-			NetworkMode: "chairman_chairman-network",
-			AutoRemove:  false,
-		},
-		nil,
-		nil,
-		containerName,
-	)
+	// Create the Job in Kubernetes
+	log.Debugf("Attempting to create Kubernetes Job: %s in namespace: %s", jobName, *namespace)
+	_, err := kubernetesClientset.BatchV1().Jobs(*namespace).Create(context.Background(), job, metav1.CreateOptions{})
 	if err != nil {
-		log.Errorf("Failed to create container for EventEmitted event: %v", err)
+		log.Errorf("Failed to create Kubernetes Job %s for event %s: %v", jobName, event.EventID, err)
+		// Handle error (e.g., retry logic, specific error checks like "already exists")
 		return
 	}
 
-	// Start container
-	if err := dockerClient.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{}); err != nil {
-		log.Errorf("Failed to start container for EventEmitted event: %v", err)
-		return
-	}
+	log.Infof("Kubernetes Job %s created successfully for event %s", jobName, event.EventID)
+}
 
-	status := ContainerStatus{
-		ContainerID: resp.ID,
-		Status:      "running",
-		CreatedAt:   time.Now(),
-		EventID:     event.EventID,
+// Helper to convert slices/maps to JSON strings safely
+func toJsonString(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Warnf("Failed to marshal to JSON: %v", err)
+		return "" // Or return "[]" or "{}" depending on expected type
 	}
-	activeContainers[resp.ID] = status
+	return string(b)
+}
 
-	log.Infof("Container %s started for EventEmitted event %s with keys: %v", containerName, event.EventID, keys)
+// Helper function to get pointer to int32 (needed for some K8s spec fields)
+func PtrInt32(i int) *int32 {
+	i32 := int32(i)
+	return &i32
 }
 
 func handleEvent(c *gin.Context) {
@@ -700,275 +806,323 @@ func handleEvent(c *gin.Context) {
 		return
 	}
 
-	// If event.Environment is nil, initialize it
-	if event.Environment == nil {
-		event.Environment = make(map[string]string)
+	log.Infof("Handling generic event: %s (type: %s)", event.EventID, event.EventType)
+
+	// Generate Job Name (similar to handleEventEmitted)
+	jobNameBase := fmt.Sprintf("generic-agent-%s", event.EventID)
+	// (Add sanitization logic as above) ...
+	jobName := jobNameBase // Simplified for example
+
+	// Prepare Environment Variables
+	envVars := []v1.EnvVar{
+		{Name: "EVENT_ID", Value: event.EventID},
+		{Name: "EVENT_TYPE", Value: event.EventType},
+		// Add payload as JSON? Requires agent to parse.
+		{Name: "EVENT_PAYLOAD_JSON", Value: toJsonString(event.Payload)},
 	}
-
-	// Add the required API keys to the environment map
-	// event.Environment["SEED"] = "'$RANDOM_SEED'"
-	event.Environment["ANTHROPIC_API_KEY"] = anthropicAPIKey
-	event.Environment["OPENAI_API_KEY"] = openaiAPIKey
-	event.Environment["OPENROUTER_API_KEY"] = openrouterAPIKey
-
-	containerName := fmt.Sprintf("dreams-%s-%s", event.EventID, time.Now().Format("20060102-150405"))
-
-	// Prepare environment variables
-	env := []string{
-		fmt.Sprintf("EVENT_ID=%s", event.EventID),
-		fmt.Sprintf("EVENT_TYPE=%s", event.EventType),
+	if event.Environment != nil {
+		for k, v := range event.Environment {
+			if k != "ANTHROPIC_API_KEY" && k != "OPENAI_API_KEY" && k != "OPENROUTER_API_KEY" {
+				envVars = append(envVars, v1.EnvVar{Name: k, Value: v})
+			}
+		}
 	}
-	for k, v := range event.Environment {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
+	// Add API Keys from Secrets (copy from handleEventEmitted)
+	// ... envVars = append(envVars, v1.EnvVar{Name: "ANTHROPIC_API_KEY", ValueFrom: ...}) ...
+	// ... etc for other keys ...
 
-	// Enforce the delay between container startups
-	enforceContainerStartDelay()
-
-	// Create container
-	resp, err := dockerClient.ContainerCreate(
-		context.Background(),
-		&container.Config{
-			Image: "chairman-app:latest",
-			Env:   env,
+	// Define the Job (similar structure to handleEventEmitted)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: *namespace,
+			Labels: map[string]string{
+				"app":        "chairman-agent-generic",
+				"event-id":   event.EventID,
+				"event-type": event.EventType, // Sanitize if needed
+			},
 		},
-		&container.HostConfig{
-			NetworkMode:     "chairman_chairman-network",
-			AutoRemove:      false,
+		Spec: batchv1.JobSpec{
+			// TTLSecondsAfterFinished: PtrInt32(3600),
+			BackoffLimit: PtrInt32(1),
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":      "chairman-agent-generic",
+						"event-id": event.EventID,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:  "agent-container",
+							Image: *agentImage,
+							Env:   envVars,
+							// Resources: ...
+						},
+					},
+					RestartPolicy:      v1.RestartPolicyNever,
+					ServiceAccountName: *agentServiceAccount,
+				},
+			},
 		},
-		nil,
-		nil,
-		containerName,
-	)
+	}
+
+	// Create Job
+	log.Debugf("Attempting to create generic Kubernetes Job: %s in namespace: %s", jobName, *namespace)
+	createdJob, err := kubernetesClientset.BatchV1().Jobs(*namespace).Create(context.Background(), job, metav1.CreateOptions{})
 	if err != nil {
-		log.Errorf("Failed to create container: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Errorf("Failed to create generic Kubernetes Job %s: %v", jobName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create agent job"})
 		return
 	}
 
-	// Start container
-	if err := dockerClient.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{}); err != nil {
-		log.Errorf("Failed to start container: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	status := ContainerStatus{
-		ContainerID: resp.ID,
-		Status:      "running",
-		CreatedAt:   time.Now(),
-		EventID:     event.EventID,
-	}
-	activeContainers[resp.ID] = status
-
-	log.Infof("Container %s started for event %s", containerName, event.EventID)
-	c.JSON(http.StatusOK, status)
-}
-
-func getContainerStatus(c *gin.Context) {
-	containerID := c.Param("container_id")
-	status, exists := activeContainers[containerID]
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Container not found"})
-		return
-	}
-	c.JSON(http.StatusOK, status)
-}
-
-func stopContainer(c *gin.Context) {
-	containerID := c.Param("container_id")
-	timeoutSeconds := 10
-	
-	if err := dockerClient.ContainerStop(context.Background(), containerID, container.StopOptions{Timeout: &timeoutSeconds}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	delete(activeContainers, containerID)
+	log.Infof("Generic Kubernetes Job %s created successfully for event %s", createdJob.Name, event.EventID)
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": fmt.Sprintf("Container %s stopped", containerID),
+		"jobName":   createdJob.Name,
+		"namespace": createdJob.Namespace,
+		"status":    "JobCreated", // Indicate job creation, status is async
+		"eventId":   event.EventID,
 	})
 }
 
-// streamContainerLogs handles WebSocket connections for container logs
-func streamContainerLogs(c *gin.Context) {
-	containerID := c.Param("container_id")
-	
-	// Check if container exists
-	_, exists := activeContainers[containerID]
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Container not found"})
+func getJobStatus(c *gin.Context) {
+	jobName := c.Param("job_name") // Use job name as identifier
+
+	job, err := kubernetesClientset.BatchV1().Jobs(*namespace).Get(context.Background(), jobName, metav1.GetOptions{})
+	if err != nil {
+		log.Warnf("Failed to get Job %s: %v", jobName, err)
+		// Distinguish between "not found" and other errors
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Job %s not found in namespace %s", jobName, *namespace)})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching job status: %v", err)})
+		}
 		return
 	}
 
-	// Set CORS headers
+	// Extract relevant status info
+	status := "Unknown"
+	var completionTime *metav1.Time
+	var startTime *metav1.Time
+
+	if job.Status.Succeeded > 0 {
+		status = "Succeeded"
+		completionTime = job.Status.CompletionTime
+	} else if job.Status.Failed > 0 {
+		status = "Failed"
+		// Could try to get failure reasons from Pod conditions if needed
+		completionTime = job.Status.CompletionTime // Might be set even on failure
+	} else if job.Status.Active > 0 {
+		status = "Running"
+		startTime = job.Status.StartTime
+	} else if job.Status.StartTime != nil {
+		// Has started but no active pods? Maybe pending or initializing.
+		status = "Pending"
+		startTime = job.Status.StartTime
+	} else {
+		// Not started yet?
+		status = "Queued"
+	}
+
+	// Get event ID from labels if present
+	eventID := job.Labels["event-id"] // Assuming we set this label
+
+	c.JSON(http.StatusOK, gin.H{
+		"jobName":        job.Name,
+		"namespace":      job.Namespace,
+		"status":         status,
+		"createdAt":      job.CreationTimestamp,
+		"startedAt":      startTime,       // May be nil
+		"completedAt":    completionTime, // May be nil
+		"eventId":        eventID,
+		"activePods":     job.Status.Active,
+		"succeededPods":  job.Status.Succeeded,
+		"failedPods":     job.Status.Failed,
+	})
+}
+
+func deleteJob(c *gin.Context) {
+	jobName := c.Param("job_name") // Use job name
+
+	log.Infof("Attempting to delete Job: %s in namespace: %s", jobName, *namespace)
+
+	// Define deletion policy: Background propagation deletes dependents (Pods) in the background
+	deletePolicy := metav1.DeletePropagationBackground
+
+	err := kubernetesClientset.BatchV1().Jobs(*namespace).Delete(context.Background(), jobName, metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	})
+	if err != nil {
+		log.Errorf("Failed to delete Job %s: %v", jobName, err)
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Job %s not found", jobName)})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete job: %v", err)})
+		}
+		return
+	}
+
+	// Remove from any internal tracking if necessary
+	// delete(activeJobs, eventID) // If using a map
+
+	log.Infof("Job %s deleted successfully", jobName)
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": fmt.Sprintf("Job %s marked for deletion", jobName),
+	})
+}
+
+func streamJobLogs(c *gin.Context) {
+	jobName := c.Param("job_name")
+
+	// 1. Find the Pod(s) associated with the Job
+	podList, err := kubernetesClientset.CoreV1().Pods(*namespace).List(context.Background(), metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("job-name=%s", jobName), // K8s automatically adds this label
+	})
+	if err != nil {
+		log.Errorf("Failed to list pods for job %s: %v", jobName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to find pods for job"})
+		return
+	}
+	if len(podList.Items) == 0 {
+		// Could be job hasn't created pod yet, or job is finished and pod cleaned up
+		log.Warnf("No pods found for job %s (might be pending, completed, or failed)", jobName)
+		c.JSON(http.StatusNotFound, gin.H{"error": "No active or recent pod found for job"})
+		return
+	}
+
+	// For simplicity, stream logs from the first pod found.
+	// A more robust solution might check pod status or aggregate logs.
+	podName := podList.Items[0].Name
+	log.Infof("Found pod %s for job %s. Attempting to stream logs.", podName, jobName)
+
+	// Set CORS headers (Keep)
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Origin, Content-Type")
-
-	// Handle preflight requests
 	if c.Request.Method == "OPTIONS" {
 		c.Status(http.StatusOK)
 		return
 	}
 
-	// Upgrade HTTP connection to WebSocket
+	// Upgrade to WebSocket (Keep)
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Errorf("Failed to upgrade connection: %v", err)
+		log.Errorf("Failed to upgrade connection for job %s logs: %v", jobName, err)
 		return
 	}
 	defer ws.Close()
 
-	// Set read/write deadlines
-	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
-	ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	// 2. Stream logs from the selected Pod
+	// Tail lines parameter - get from query? Default to reasonable number
+	tailLines := int64(100) // Default
+	if tailStr := c.Query("tail"); tailStr != "" {
+		if i, err := strconv.ParseInt(tailStr, 10, 64); err == nil && i > 0 {
+			tailLines = i
+		}
+	}
+	follow := c.Query("follow") != "false" // Follow logs by default
 
-	// Get container logs
-	ctx := context.Background()
-	logs, err := dockerClient.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     true,
-		Tail:       "100", // Start with last 100 lines
-		Timestamps:  true,
+	req := kubernetesClientset.CoreV1().Pods(*namespace).GetLogs(podName, &v1.PodLogOptions{
+		Follow:     follow,    // Follow the logs
+		Timestamps: true,      // Include timestamps
+		TailLines:  &tailLines, // Start with the last N lines
+		// Container: "agent-container", // Specify if multiple containers in pod
 	})
+
+	podLogs, err := req.Stream(context.Background())
 	if err != nil {
-		log.Errorf("Failed to get container logs: %v", err)
-		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+		log.Errorf("Failed to stream logs for pod %s: %v", podName, err)
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error streaming logs: %v", err)))
 		return
 	}
-	defer logs.Close()
+	defer podLogs.Close()
 
-	// Create a goroutine to read logs and send them to the WebSocket
+	// Goroutine to copy logs from K8s stream to WebSocket (Keep similar structure)
 	go func() {
 		defer ws.Close()
-		defer logs.Close()
+		defer podLogs.Close()
 
-		// Create a buffer to store the log data
-		buf := make([]byte, 32*1024) // 32KB buffer
+		buf := make([]byte, 32*1024)
 		for {
-			n, err := logs.Read(buf)
+			n, err := podLogs.Read(buf)
+			if n > 0 {
+				// Use TextMessage as K8s logs are usually UTF-8 text
+				if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					log.Warnf("Error writing logs to WebSocket for pod %s: %v", podName, err)
+					return // Stop sending on write error
+				}
+				// Reset write deadline (Keep)
+				ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			}
 			if err != nil {
 				if err != io.EOF {
-					log.Errorf("Error reading logs: %v", err)
+					log.Warnf("Error reading logs from K8s stream for pod %s: %v", podName, err)
+				} else {
+					log.Infof("Log stream ended (EOF) for pod %s", podName)
 				}
-				return
+				ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Log stream ended"))
+				return // Stop reading on EOF or other errors
 			}
-
-			// Send the raw log data as a binary message
-			if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-				log.Errorf("Error writing to WebSocket: %v", err)
-				return
-			}
-
-			// Reset write deadline after each write
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		}
 	}()
 
-	// Keep the connection alive and handle client messages
+	// Keep connection alive (Keep similar structure)
 	for {
+		// Reset read deadline (Keep)
+		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		messageType, message, err := ws.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Errorf("WebSocket error: %v", err)
+				log.Warnf("WebSocket closed unexpectedly for job %s logs: %v", jobName, err)
+			} else {
+				log.Infof("WebSocket closed for job %s logs", jobName)
 			}
-			break
+			break // Exit loop on close or error
 		}
-
-		// Reset read deadline after each read
-		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
-
-		// Echo the message back (can be used for ping/pong or other control messages)
+		// Echo or handle client messages if needed (Keep)
 		if err := ws.WriteMessage(messageType, message); err != nil {
-			log.Errorf("Error writing to WebSocket: %v", err)
+			log.Warnf("Error writing echo to WebSocket for job %s logs: %v", jobName, err)
 			break
 		}
 	}
-}
-
-// Add this function to get container ID by name
-func getContainerIDByName(name string) (string, error) {
-	containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-		All: true,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to list containers: %v", err)
-	}
-
-	for _, container := range containers {
-		// Check both the container name and any aliases
-		for _, containerName := range container.Names {
-			// Docker container names start with a slash, so we need to trim it
-			containerName = strings.TrimPrefix(containerName, "/")
-			if containerName == name {
-				return container.ID, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("container not found: %s", name)
-}
-
-// Add this new endpoint handler
-func getContainerByName(c *gin.Context) {
-	name := c.Param("name")
-	containerID, err := getContainerIDByName(name)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"container_id": containerID})
 }
 
 func main() {
 	r := gin.Default()
 
 	r.POST("/event", handleEvent)
-	r.GET("/containers/:container_id", getContainerStatus)
-	r.DELETE("/containers/:container_id", stopContainer)
-	r.GET("/containers/:container_id/logs", streamContainerLogs)
-	r.GET("/containers/name/:name", getContainerByName) // Add this new route
+	r.GET("/jobs/:job_name/status", getJobStatus)
+	r.DELETE("/jobs/:job_name", deleteJob)
+	r.GET("/jobs/:job_name/logs", streamJobLogs)
 
-	// Display current configuration
-	log.Info("Starting Dreams Container Manager...")
-	log.Infof("Contract Address: %s", defaultEventEmittedFilter.ContractAddress)
-	log.Infof("Event Selector: %s", *eventSelector)
-	log.Infof("Case-insensitive matching: %v", *caseInsensitive)
-	log.Infof("Partial matching: %v", *partialMatch)
-	log.Info("Including both event keys and data in environment variables")
-	
-	// Display API key status (without revealing the actual keys)
-	log.Infof("ANTHROPIC_API_KEY: %s", maskAPIKey(anthropicAPIKey))
-	log.Infof("OPENAI_API_KEY: %s", maskAPIKey(openaiAPIKey))
-	log.Infof("OPENROUTER_API_KEY: %s", maskAPIKey(openrouterAPIKey))
-	
-	// Display starting block information
-	if fromBlock, ok := defaultEventEmittedFilter.FromBlock.(string); ok && fromBlock == "latest" {
-		log.Info("Starting from latest block")
-	} else if fromBlockMap, ok := defaultEventEmittedFilter.FromBlock.(map[string]interface{}); ok {
-		if blockNum, ok := fromBlockMap["block_number"]; ok {
-			log.Infof("Starting from block number: %v", blockNum)
-		}
+	log.Info("Starting Dreams Kubernetes Agent Manager...")
+	log.Infof("Listening for contract: %s", defaultEventEmittedFilter.ContractAddress)
+	log.Infof("Event Selector: %s (Case-Insensitive: %v, Partial Match: %v)", *eventSelector, *caseInsensitive, *partialMatch)
+	log.Infof("Target Kubernetes Namespace: %s", *namespace)
+	log.Infof("Agent Image: %s", *agentImage)
+	if *agentServiceAccount != "" {
+		log.Infof("Using ServiceAccount for Agents: %s", *agentServiceAccount)
 	}
-	
+	log.Infof("ANTHROPIC_API_KEY: %s (Expected via K8s Secret 'agent-api-keys')", maskAPIKey(anthropicAPIKey))
+	log.Infof("OPENAI_API_KEY: %s (Expected via K8s Secret 'agent-api-keys')", maskAPIKey(openaiAPIKey))
+	log.Infof("OPENROUTER_API_KEY: %s (Expected via K8s Secret 'agent-api-keys')", maskAPIKey(openrouterAPIKey))
+
 	log.Infof("Listening on :8000")
 	if err := r.Run(":8000"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
-// maskAPIKey masks an API key for display in logs
 func maskAPIKey(key string) string {
 	if key == "" {
-		return "not set"
+		return "not set in server env"
 	}
 	
 	if len(key) <= 8 {
 		return "****"
 	}
 	
-	// Show only first 4 and last 4 characters
 	return key[:4] + "..." + key[len(key)-4:]
 } 

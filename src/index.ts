@@ -1,15 +1,8 @@
 import "./polyfill";
 
-import {
-  context,
-  createDreams,
-  LogLevel,
-  render,
-  validateEnv,
-} from "@daydreamsai/core";
-import { string, z } from "zod";
+import { createDreams, Logger, LogLevel, validateEnv } from "@daydreamsai/core";
+import { z } from "zod";
 
-import { generateCharacter } from "./character-gen";
 import { chat } from "./chat";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { eternum } from "./eternum";
@@ -22,65 +15,24 @@ validateEnv(
   })
 );
 
-export const seed =
-  parseInt(process.env.SEED! || process.env.EVENT_DATA_1! || "1234567891011") *
-  99999;
-
-const character = generateCharacter({
-  seed: seed,
-});
-
-const template = `
-
-
-Here is the current goal:
-
-Goal: {{goal}} 
-Tasks: {{tasks}}
-Current Task: {{currentTask}}
-`;
-
-const goalContexts = context({
-  type: "goal",
-  schema: z.object({
-    id: string(),
-    initialGoal: z.string(),
-    initialTasks: z.array(z.string()),
-  }),
-
-  key({ id }) {
-    return id;
-  },
-
-  create(state) {
-    return {
-      goal: state.args.initialGoal,
-      tasks: state.args.initialTasks ?? [],
-      currentTask: state.args.initialTasks?.[0],
-    };
-  },
-
-  render({ memory }) {
-    return render(template, {
-      goal: memory.goal,
-      tasks: memory.tasks.join("\n"),
-      currentTask: memory.currentTask ?? "NONE",
-    });
-  },
-});
-
 // Create agent with async initialization
 async function initializeAgent() {
   try {
     const agent = createDreams({
-      logger: LogLevel.DEBUG,
-      model: openrouter("deepseek/deepseek-r1-distill-llama-70b"),
-      context: goalContexts,
+      logger: new Logger({ level: LogLevel.DEBUG }),
+      model: openrouter("google/gemini-2.5-flash-preview"),
       extensions: [chat, eternum],
-    }).start({ id: "test", initialGoal: "", initialTasks: [] });
+    }).start();
 
-    console.log("Starting Daydreams Discord Bot...");
-    console.log("Daydreams Discord Bot started");
+    console.log(`
+      ____  _____  ______  ____  _________    __  ________
+      / __ \/   \ \/ / __ \/ __ \/ ____/   |  /  |/  / ___/
+     / / / / /| |\  / / / / /_/ / __/ / /| | / /|_/ /\__ \ 
+    / /_/ / ___ |/ / /_/ / _, _/ /___/ ___ |/ /  / /___/ / 
+   /_____/_/  |_/_/_____/_/ |_/_____/_/  |_/_/  /_//____/  
+                                                           
+`);
+    console.log("DAYDREAMS ETERNUM AGENT BOOTING UP");
 
     return agent;
   } catch (error) {

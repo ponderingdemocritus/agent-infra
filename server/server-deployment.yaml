@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dreams-agents-server-deployment
+  namespace: my-agents
+  labels:
+    app: dreams-agents-server
+spec:
+  replicas: 1 # Start with one instance of the server
+  selector:
+    matchLabels:
+      app: dreams-agents-server
+  template:
+    metadata:
+      labels:
+        app: dreams-agents-server
+    spec:
+      # Use the ServiceAccount we created earlier for RBAC permissions
+      serviceAccountName: dreams-agents-server-sa
+      containers:
+      - name: dreams-agents-server-container
+        # --- Use the exact image name you pushed ---
+        image: us-central1-docker.pkg.dev/eternum-1/dreams-agents-repo/dreams-agents-server:latest
+        imagePullPolicy: Always # Ensure GKE always pulls the latest if tag is reused
+        ports:
+        - containerPort: 8000 # The port your Gin server listens on
+        # Pass command-line arguments to the server binary
+        # Adjust these values as needed for your production setup
+        args: [
+          "--namespace=dreams-agents", # Namespace where agents should run
+          "--agent-image=us-central1-docker.pkg.dev/eternum-1/dreams-agents-repo/chairman-app:latest", # Replace with your agent image name if different
+          # "--agent-service-account=my-agent-sa", # Uncomment and set if agents need a specific SA
+          # "--contract=0x...", # Set your production contract address
+          # "--selector=0x...", # Set your production event selector
+          # "--block=0", # Start from latest block (or specify a start block)
+          # Add other flags like --batch-size if needed
+        ]
+        # Set resource requests and limits (adjust based on expected load)
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m" # 0.25 CPU core
+          limits:
+            memory: "512Mi"
+            cpu: "500m" # 0.5 CPU core
+        # Liveness and Readiness Probes (Optional but recommended)
+        # These help Kubernetes know if your app is healthy
+        # Liveness probe restarts the container if it fails
+        # Readiness probe marks the pod as ready to receive traffic
+        # You might need to add a simple health check endpoint (e.g., /healthz) to your Go app
+        # livenessProbe:
+        #   httpGet:
+        #     path: /healthz # Replace with your actual health check path
+        #     port: 8000
+        #   initialDelaySeconds: 15
+        #   periodSeconds: 20
+        # readinessProbe:
+        #   httpGet:
+        #     path: /healthz # Replace with your actual health check path
+        #     port: 8000
+        #   initialDelaySeconds: 5
+        #   periodSeconds: 10
+
+# --- Optional but recommended: Service ---
+# This creates a stable internal IP address for your server deployment
+# Useful if other pods within the cluster need to reach it.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreams-agents-server-service
+  namespace: my-agents
+  labels:
+    app: dreams-agents-server
+spec:
+  selector:
+    app: dreams-agents-server # Selects pods with the label 'app: dreams-agents-server'
+  ports:
+  - protocol: TCP
+    port: 80 # Port the service listens on within the cluster
+    targetPort: 8000 # Port the container listens on (matches containerPort above)
+  type: ClusterIP # Makes the service only reachable within the cluster

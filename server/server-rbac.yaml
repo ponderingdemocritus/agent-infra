@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chairman-server-sa
+  namespace: my-agents
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chairman-job-creator-role
+  namespace: my-agents
+rules:
+- apiGroups: ["batch"] # API group for Jobs
+  resources: ["jobs"]  # Resource type
+  verbs: ["create", "get", "list", "delete"] # Permissions needed
+- apiGroups: [""] # Core API group for Pods (to list/get for logging)
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""] # Core API group for Pod logs
+  resources: ["pods/log"]
+  verbs: ["get", "list"] # Needed to stream logs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chairman-server-job-creator-binding
+  namespace: my-agents
+subjects:
+- kind: ServiceAccount
+  name: chairman-server-sa # Link to the ServiceAccount above
+  namespace: my-agents
+roleRef:
+  kind: Role # Link to the Role above
+  name: chairman-job-creator-role
+  apiGroup: rbac.authorization.k8s.io
