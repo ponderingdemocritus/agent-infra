@@ -208,6 +208,86 @@ export async function fetchCurrentTick(): Promise<number> {
   return Math.floor(currentTimestamp / TICKS.Armies);
 }
 
+enum ResourcesIds {
+  Stone = 1,
+  Coal = 2,
+  Wood = 3,
+  Copper = 4,
+  Ironwood = 5,
+  Obsidian = 6,
+  Gold = 7,
+  Silver = 8,
+  Mithral = 9,
+  AlchemicalSilver = 10,
+  ColdIron = 11,
+  DeepCrystal = 12,
+  Ruby = 13,
+  Diamonds = 14,
+  Hartwood = 15,
+  Ignium = 16,
+  TwilightQuartz = 17,
+  TrueIce = 18,
+  Adamantine = 19,
+  Sapphire = 20,
+  EtherealSilica = 21,
+  Dragonhide = 22,
+  Labor = 23,
+  AncientFragment = 24,
+  Donkey = 25,
+  Knight = 26,
+  KnightT2 = 27,
+  KnightT3 = 28,
+  Crossbowman = 29,
+  CrossbowmanT2 = 30,
+  CrossbowmanT3 = 31,
+  Paladin = 32,
+  PaladinT2 = 33,
+  PaladinT3 = 34,
+  Wheat = 35,
+  Fish = 36,
+  Lords = 37,
+}
+
+export const RESOURCES_WEIGHTS_NANOGRAM: { [key in ResourcesIds]: number } = {
+  [ResourcesIds.Wood]: 1000,
+  [ResourcesIds.Stone]: 1000,
+  [ResourcesIds.Coal]: 1000,
+  [ResourcesIds.Copper]: 1000,
+  [ResourcesIds.Obsidian]: 1000,
+  [ResourcesIds.Silver]: 1000,
+  [ResourcesIds.Ironwood]: 1000,
+  [ResourcesIds.ColdIron]: 1000,
+  [ResourcesIds.Gold]: 1000,
+  [ResourcesIds.Hartwood]: 1000,
+  [ResourcesIds.Diamonds]: 1000,
+  [ResourcesIds.Sapphire]: 1000,
+  [ResourcesIds.Ruby]: 1000,
+  [ResourcesIds.DeepCrystal]: 1000,
+  [ResourcesIds.Ignium]: 1000,
+  [ResourcesIds.EtherealSilica]: 1000,
+  [ResourcesIds.TrueIce]: 1000,
+  [ResourcesIds.TwilightQuartz]: 1000,
+  [ResourcesIds.AlchemicalSilver]: 1000,
+  [ResourcesIds.Adamantine]: 1000,
+  [ResourcesIds.Mithral]: 1000,
+  [ResourcesIds.Dragonhide]: 1000,
+  [ResourcesIds.Labor]: 1000,
+  [ResourcesIds.AncientFragment]: 1000,
+  [ResourcesIds.Donkey]: 0,
+  [ResourcesIds.Knight]: 5000,
+  [ResourcesIds.KnightT2]: 5000,
+  [ResourcesIds.KnightT3]: 5000,
+  [ResourcesIds.Crossbowman]: 5000,
+  [ResourcesIds.CrossbowmanT2]: 5000,
+  [ResourcesIds.CrossbowmanT3]: 5000,
+  [ResourcesIds.Paladin]: 5000,
+  [ResourcesIds.PaladinT2]: 5000,
+  [ResourcesIds.PaladinT3]: 5000,
+  [ResourcesIds.Lords]: 0,
+  [ResourcesIds.Wheat]: 100,
+  [ResourcesIds.Fish]: 100,
+};
+
 // Helper function to generate a simplified ASCII map view
 export function generateASCIIMap(
   tiles: Array<{
@@ -262,6 +342,22 @@ export function generateASCIIMap(
     }
   });
 
+  // Check available directions from current position
+  const availableDirections: number[] = [];
+  for (let direction = 0; direction < 6; direction++) {
+    const neighbor = getNeighborCoord(currentX, currentY, direction);
+    const neighborKey = `${neighbor.x},${neighbor.y}`;
+
+    // A direction is available if the tile exists and is not occupied
+    if (
+      tileMap[neighborKey] &&
+      (!tileMap[neighborKey].occupier_type ||
+        tileMap[neighborKey].occupier_type === TileOccupier.None)
+    ) {
+      availableDirections.push(direction);
+    }
+  }
+
   // Generate the ASCII map view with proper hex grid offset
   let asciiMap = "";
 
@@ -309,6 +405,26 @@ export function generateASCIIMap(
   asciiMap += "Letters = Biome types (G=Grassland, O=Ocean, etc.)\n";
   asciiMap += "Numbers = Occupied tiles (see types below)\n";
 
+  // Add available directions section
+  asciiMap +=
+    "\nIMPORTANT: <available-directions> Available Directions (you can only move in these directions):\n";
+  if (availableDirections.length === 0) {
+    asciiMap += "No available directions to move!\n";
+  } else {
+    const directionNames = [
+      "0: East",
+      "1: Southeast",
+      "2: Southwest",
+      "3: West",
+      "4: Northwest",
+      "5: Northeast",
+    ];
+
+    asciiMap +=
+      availableDirections.map((dir) => directionNames[dir]).join(", ") + "\n";
+  }
+  asciiMap += "</available-directions>\n";
+
   // Add occupier reference section if there are any occupiers
   if (occupierDetails.length > 0) {
     asciiMap += "\nOccupier Details (Position, Type, ID):\n";
@@ -343,11 +459,9 @@ export function generateASCIIMap(
 
   // Add direction compass
   asciiMap += "\nDirections:\n";
-  asciiMap += "    1(NE)  2(NW)\n";
-  asciiMap += "0(E)   O   3(W)\n";
-  asciiMap += "    5(SE)  4(SW)\n";
-
-  console.log(asciiMap);
+  asciiMap += "    4(NW)  5(NE)\n";
+  asciiMap += "3(W)   O   0(E)\n";
+  asciiMap += "    2(SW)  1(SE)\n";
 
   return asciiMap;
 }
@@ -458,6 +572,7 @@ export function findNearestEntity(
       col: number;
       row: number;
       occupier_id?: number;
+      occupier_type?: number;
     }
   >,
   currentX: number,
@@ -468,6 +583,7 @@ export function findNearestEntity(
     col: number;
     row: number;
     occupier_id: number;
+    occupier_type: number;
     distance: number;
     path?: Array<{
       direction: number;
@@ -483,6 +599,7 @@ export function findNearestEntity(
       col: tile.col,
       row: tile.row,
       occupier_id: tile.occupier_id!,
+      occupier_type: tile.occupier_type!,
       distance: calculateHexDistance(currentX, currentY, tile.col, tile.row),
     }))
     .filter((entity) => entity.distance <= maxDistance)
@@ -492,6 +609,7 @@ export function findNearestEntity(
     col: number;
     row: number;
     occupier_id: number;
+    occupier_type: number;
     distance: number;
     path?: Array<{
       direction: number;
@@ -635,4 +753,142 @@ export function findPathToTarget(
   }
 
   return path;
+}
+
+export const nanogramToKg = (value: number) => {
+  return value / 10 ** 12;
+};
+
+export const getRemainingCapacityInKg = (resource: any) => {
+  const weight = resource?.weight;
+
+  if (!weight) return 0;
+
+  return nanogramToKg(Number(weight.capacity - weight.weight)) || 0;
+};
+
+export const getRemainingCapacity = (
+  resource: any,
+  defenderDamage: number,
+  capacityConfigArmy: number
+) => {
+  const remainingCapacity = getRemainingCapacityInKg(resource);
+  const remainingCapacityAfterRaid =
+    remainingCapacity - (defenderDamage || 0) * capacityConfigArmy;
+
+  return {
+    beforeRaid: remainingCapacity,
+    afterRaid: remainingCapacityAfterRaid,
+  };
+};
+
+export const getStealableResources = (
+  capacityAfterRaid: number,
+  targetArmyResources: Array<{ resourceId: number; amount: number }>,
+  divideByPrecision: (value: number) => number,
+  getResourceWeightKg: (resourceId: number) => number
+) => {
+  const stealableResources: Array<{ resourceId: number; amount: number }> = [];
+
+  // If no capacity, return empty array immediately
+  if (capacityAfterRaid <= 0) {
+    return stealableResources;
+  }
+
+  let remainingCapacity = capacityAfterRaid;
+
+  [...targetArmyResources]
+    .sort((a, b) => b.amount - a.amount)
+    .forEach((resource) => {
+      const availableAmount = divideByPrecision(resource.amount);
+      const resourceWeight = getResourceWeightKg(resource.resourceId);
+
+      if (remainingCapacity > 0) {
+        let maxStealableAmount;
+        if (resourceWeight === 0) {
+          // If resource has no weight, can take all of it
+          maxStealableAmount = availableAmount;
+        } else {
+          maxStealableAmount = Math.min(
+            Math.floor(Number(remainingCapacity) / Number(resourceWeight)),
+            availableAmount
+          );
+        }
+
+        if (maxStealableAmount > 0) {
+          stealableResources.push({
+            ...resource,
+            amount: maxStealableAmount,
+          });
+        }
+
+        remainingCapacity -= maxStealableAmount * Number(resourceWeight);
+      }
+    });
+
+  return stealableResources;
+};
+
+export const processResourceData = (
+  resourceData: any,
+  defenderDamage = 0,
+  capacityConfigArmy = 0,
+  resourcesIds: { [key: string]: number }
+): Array<{ resourceId: number; amount: number }> => {
+  if (!resourceData?.data?.s1EternumResourceModels?.edges?.[0]?.node) {
+    return [];
+  }
+
+  const resourceNode = resourceData.data.s1EternumResourceModels.edges[0].node;
+  const capacity = {
+    capacity: parseInt(resourceNode.weight.capacity, 16),
+    weight: parseInt(resourceNode.weight.weight, 16),
+  };
+
+  // Create resource object needed by getRemainingCapacityInKg
+  const resourceObj = { weight: capacity };
+
+  // Calculate remaining capacity
+  const remainingCapacity = getRemainingCapacity(
+    resourceObj,
+    defenderDamage,
+    capacityConfigArmy
+  );
+
+  // Extract all resources with non-zero balances
+  const availableResources = Object.entries(resourceNode)
+    .filter(([key, value]) => key.endsWith("_BALANCE") && value !== "0x0")
+    .map(([key, value]) => {
+      const resourceName = key.replace("_BALANCE", "");
+      return {
+        resourceId: resourcesIds[resourceName] || 0, // Use the provided resourcesIds map
+        amount: parseInt(value as string, 16),
+      };
+    });
+
+  // Get stealable resources based on capacity
+  // Provide a type–safe lookup for the nanogram weight table
+  const weightInKg = (resourceId: number): number =>
+    nanogramToKg(
+      // Cast the constant map to Record<number, number> so generic numbers are allowed
+      (RESOURCES_WEIGHTS_NANOGRAM as Record<number, number>)[resourceId] ?? 0
+    );
+
+  return getStealableResources(
+    remainingCapacity.afterRaid,
+    availableResources,
+    divideByPrecision, // pass function reference directly
+    weightInKg // use the typed weight accessor
+  );
+};
+
+export const RESOURCE_PRECISION = 1_000_000_000;
+
+export function divideByPrecision(
+  value: number,
+  floor: boolean = true
+): number {
+  return floor
+    ? Math.floor(value / RESOURCE_PRECISION)
+    : value / RESOURCE_PRECISION;
 }

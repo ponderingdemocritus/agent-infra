@@ -73,6 +73,60 @@ export const TILES_QUERY = `
   }
 `;
 
+export const RESOURCES_QUERY = `
+  query entityResources($entity_id: u32!) {
+    s1EternumResourceModels(
+      where: {entity_id: $entity_id}
+      first: 1000
+    ) {
+      edges {
+        node {
+          weight {
+            capacity
+            weight
+          }
+          entity_id
+          LORDS_BALANCE
+          STONE_BALANCE
+          COAL_BALANCE
+          WOOD_BALANCE
+          COPPER_BALANCE
+          IRONWOOD_BALANCE
+          OBSIDIAN_BALANCE
+          GOLD_BALANCE
+          SILVER_BALANCE
+          MITHRAL_BALANCE
+          ALCHEMICAL_SILVER_BALANCE
+          COLD_IRON_BALANCE
+          DEEP_CRYSTAL_BALANCE
+          RUBY_BALANCE
+          DIAMONDS_BALANCE
+          HARTWOOD_BALANCE
+          IGNIUM_BALANCE
+          TWILIGHT_QUARTZ_BALANCE
+          TRUE_ICE_BALANCE
+          ADAMANTINE_BALANCE
+          SAPPHIRE_BALANCE
+          ETHEREAL_SILICA_BALANCE
+          DRAGONHIDE_BALANCE
+          LABOR_BALANCE
+          EARTHEN_SHARD_BALANCE
+          DONKEY_BALANCE
+          KNIGHT_T1_BALANCE
+          KNIGHT_T2_BALANCE
+          KNIGHT_T3_BALANCE
+          CROSSBOWMAN_T1_BALANCE
+          CROSSBOWMAN_T2_BALANCE
+          CROSSBOWMAN_T3_BALANCE
+          PALADIN_T1_BALANCE
+          PALADIN_T2_BALANCE
+          PALADIN_T3_BALANCE
+        }
+      }
+    }
+  }
+`;
+
 export interface GraphQLResponse {
   s1EternumExplorerTroopsModels: {
     edges: Array<{

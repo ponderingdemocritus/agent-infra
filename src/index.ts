@@ -11,7 +11,6 @@ validateEnv(
   z.object({
     OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
     ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
-    // CHROMADB_URL: z.string().optional().default("http://chromadb:8001"),
   })
 );
 
@@ -19,7 +18,7 @@ validateEnv(
 async function initializeAgent() {
   try {
     const agent = createDreams({
-      logger: new Logger({ level: LogLevel.DEBUG }),
+      logger: new Logger({ level: LogLevel.INFO }),
       model: openrouter("google/gemini-2.5-flash-preview"),
       extensions: [chat, eternum],
     }).start();
