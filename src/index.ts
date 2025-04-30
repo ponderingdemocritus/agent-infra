@@ -10,7 +10,7 @@ import { eternum } from "./eternum";
 validateEnv(
   z.object({
     OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
-    ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
+    OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
   })
 );
 
