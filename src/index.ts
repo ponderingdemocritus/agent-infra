@@ -6,6 +6,7 @@ import { z } from "zod";
 import { chat } from "./chat";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { eternum } from "./eternum";
+import { checkForDeath } from "./death";
 
 validateEnv(
   z.object({
@@ -32,6 +33,10 @@ async function initializeAgent() {
                                                            
 `);
     console.log("DAYDREAMS ETERNUM AGENT BOOTING UP");
+
+    checkForDeath().catch((error) => {
+      console.error("Unhandled error in agent:", error);
+    });
 
     return agent;
   } catch (error) {
