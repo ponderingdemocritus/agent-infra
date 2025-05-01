@@ -67,6 +67,28 @@ export const executeWithRetry = async (
   }
 };
 
+export function createAccount(publicKey: string, privateKey: string) {
+  // Calculate future address of the ArgentX account
+  const axSigner = new CairoCustomEnum({ Starknet: { pubkey: publicKey } });
+  const axGuardian = new CairoOption<unknown>(CairoOptionVariant.None);
+  const AXConstructorCallData = CallData.compile({
+    owner: axSigner,
+    guardian: axGuardian,
+  });
+
+  const contractAddress = hash.calculateContractAddressFromHash(
+    publicKey,
+    argentXaccountClassHash,
+    AXConstructorCallData,
+    0
+  );
+  console.log("Precalculated account address=", contractAddress);
+
+  const account = new Account(rpc, contractAddress, privateKey);
+
+  return account;
+}
+
 // Create new account
 export const createNewAccount = async () => {
   // Generate public and private key pair

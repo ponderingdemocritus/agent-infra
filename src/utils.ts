@@ -448,7 +448,7 @@ export function generateASCIIMap(
         priority = "(P1: Attack)";
       } else if (key.startsWith("Realm")) {
         priority = "(P2: Attack)";
-      } else if (key.startsWith("Village")) {
+      } else if (key.startsWith("Village") || key.startsWith("FragmentMine")) {
         priority = "(P3: Attack)";
       } else if (key.startsWith("Bank")) {
         priority = "(P4: Attack)";
