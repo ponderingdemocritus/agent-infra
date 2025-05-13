@@ -6,7 +6,7 @@ type Tile = {
   occupier_type: number;
 };
 
-type Position = { x: number; y: number };
+export type Position = { x: number; y: number };
 interface PositionWithDirection extends Position {
   direction?: Direction; // Direction taken to reach this position from the previous one
 }
@@ -36,7 +36,7 @@ function reconstructPath(endNode: Node): PositionWithDirection[] {
   return path;
 }
 
-function getHexDistance(a: Position, b: Position): number {
+export function getHexDistance(a: Position, b: Position): number {
   const dx = Math.abs(a.x - b.x);
   const dy = Math.abs(a.y - b.y);
   return Math.max(dx, dy);

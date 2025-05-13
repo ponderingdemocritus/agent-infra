@@ -1,11 +1,21 @@
 import { action, context } from "@daydreamsai/core";
 import padaInstructions from "./instructions/pada.md";
 import playerInstructions from "./instructions/player_character.md";
-import { calculateHexDistance, processResourceData } from "../game/utils";
+import {
+  calculateHexDistance,
+  getNeighborCoord,
+  processResourceData,
+} from "../game/utils";
 import { eternum } from "../game/client";
 import { z } from "zod";
 import { createAccount } from "../account";
-import { findDirectionToNeighbor, findShortestPath } from "../game/pathfinding";
+import {
+  findDirectionToNeighbor,
+  findShortestPath,
+  getHexDistance,
+  type Position,
+} from "../game/pathfinding";
+import type { Account } from "starknet";
 
 export const game_loop = context({
   type: "agent_game_loop",
@@ -47,6 +57,61 @@ const keys: Record<number, { publicKey: string; privateKey: string }> = {
   },
 };
 
+const explorerController = {
+  async moveTo(
+    account: Account,
+    explorerId: number,
+    pos: Position,
+    target: Position
+  ) {
+    const distance = getHexDistance(pos, target);
+    console.log({ distance });
+
+    if (distance === 1) {
+      const dir = findDirectionToNeighbor(pos.y, pos, target);
+      if (dir) {
+        try {
+          await eternum.controller.move(account, explorerId, [dir]);
+          return { success: true };
+        } catch (error) {
+          console.log({ error });
+          return { success: false, error };
+        }
+      }
+      console.log("no dir on distance 1");
+    }
+
+    const tiles = await eternum.getTilesByRadius({
+      pos,
+      radius: Math.ceil(distance) + 2,
+    });
+
+    const path = findShortestPath(
+      pos,
+      target,
+      new Map(tiles.map((tile) => [`${tile.col},${tile.row}`, tile])),
+      10
+    );
+
+    if (path.length < 1) {
+      throw new Error("no path found");
+    }
+
+    console.log({ path, distance });
+
+    try {
+      await eternum.controller.move(
+        account,
+        explorerId,
+        path.slice(1).map((p) => p.direction!)
+      );
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  },
+};
+
 export const player_context = context({
   type: "player",
   schema: {
@@ -73,7 +138,7 @@ It's the primary source for understanding Agent's current status, capabilities, 
     const [{ balances, storage }] = await eternum.getResources(args.playerId);
 
     return {
-      id: args.id,
+      id: args.playerId,
       current_location: coord,
       stats: {
         stamina,
@@ -103,60 +168,12 @@ It's the primary source for understanding Agent's current status, capabilities, 
       y: z.number(),
     },
     async handler(target, { memory, options }) {
-      const distance = calculateHexDistance(
-        target.x,
-        target.y,
-        memory.current_location.x,
-        memory.current_location.y
-      );
-
-      if (distance === 1) {
-        const dir = findDirectionToNeighbor(
-          memory.current_location.y,
-          memory.current_location,
-          target
-        );
-
-        if (dir) {
-          try {
-            await eternum.controller.move(options.account, memory.id, [dir]);
-            return { success: true };
-          } catch (error) {
-            console.log({ error });
-            return { success: false };
-          }
-        }
-      }
-
-      const tiles = await eternum.getTilesByRadius({
-        pos: memory.current_location,
-        radius: Math.ceil(distance),
-      });
-
-      const path = findShortestPath(
+      return explorerController.moveTo(
+        options.account,
+        memory.id,
         memory.current_location,
-        target,
-        new Map(tiles.map((tile) => [`${tile.col},${tile.row}`, tile])),
-        10
+        target
       );
-
-      if (path.length === 0) {
-        throw new Error("no path found");
-      }
-
-      console.log({ path, distance });
-
-      try {
-        await eternum.controller.move(
-          options.account,
-          memory.id,
-          path.slice(1).map((p) => p.direction!)
-        );
-        return { success: true };
-      } catch (error) {
-        console.log({ error });
-        return { success: false };
-      }
     },
   }),
   action({
@@ -184,18 +201,13 @@ It's the primary source for understanding Agent's current status, capabilities, 
         throw new Error("not adjacent to entity");
       }
 
-      console.log({ direction });
-
       const resources = await eternum.getResources(entity_id);
 
-      console.log({ resources });
       const stealableResources = processResourceData(
         resources.at(0)!,
         0, // defenderDamage (0 for initial calculation)
         0 // capacityConfigArmy (handled in contract)
       );
-
-      console.log({ stealableResources });
 
       try {
         await eternum.controller.raidStructure(
@@ -225,6 +237,24 @@ It's the primary source for understanding Agent's current status, capabilities, 
       if (!tile) {
         throw new Error("entity not found");
       }
+
+      // const distance = calculateHexDistance(
+      //   memory.current_location.x,
+      //   memory.current_location.y,
+      //   tile.col,
+      //   tile.row
+      // );
+
+      // if (distance > 1) {
+      //   const res = await explorerController.moveTo(
+      //     options.account,
+      //     memory.id,
+      //     memory.current_location,
+      //     { x: tile.col, y: tile.row }
+      //   );
+
+      //   if (res.error) throw res.error;
+      // }
 
       const direction = findDirectionToNeighbor(
         memory.current_location.y,
@@ -258,6 +288,53 @@ It's the primary source for understanding Agent's current status, capabilities, 
     schema: {
       explorer_id: z.number(),
     },
-    async handler(target, { memory, options }) {},
+    async handler({ explorer_id }, { memory, options }) {
+      const tile = await eternum.getTileByOccupier({
+        occupier_id: explorer_id,
+      });
+
+      console.log({ tile });
+
+      if (!tile) {
+        throw new Error("entity not found");
+      }
+
+      const direction = findDirectionToNeighbor(
+        memory.current_location.y,
+        memory.current_location,
+        { x: tile.col, y: tile.row }
+      );
+
+      if (!direction) {
+        throw new Error("not adjacent to entity");
+      }
+
+      console.log({ direction });
+
+      const resources = await eternum.getResources(explorer_id);
+
+      const stealableResources = processResourceData(
+        resources.at(0)!,
+        0, // defenderDamage (0 for initial calculation)
+        0 // capacityConfigArmy (handled in contract)
+      );
+
+      console.log({ stealableResources });
+
+      try {
+        await eternum.controller.attackExporer(
+          options.account,
+          memory.id,
+          explorer_id,
+          direction,
+          stealableResources
+        );
+
+        return { success: true };
+      } catch (error) {
+        console.log({ error });
+        return { success: false };
+      }
+    },
   }),
 ]);

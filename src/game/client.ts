@@ -48,13 +48,23 @@ const controller = {
   async attackExporer(
     account: Account,
     explorer_id: number,
-    structure_id: number,
-    direction: number
+    defenderId: number,
+    direction: number,
+    stealableResources: { resourceId: number; amount: number }[]
   ) {
     const attackCall: Call = {
       contractAddress: troop_battle_systems!,
-      entrypoint: "attack_explorer_vs_guard",
-      calldata: [explorer_id, structure_id, direction],
+      entrypoint: "attack_explorer_vs_explorer",
+      calldata: [
+        explorer_id,
+        defenderId,
+        direction,
+        stealableResources.length,
+        ...stealableResources.flatMap(({ resourceId, amount }) => [
+          resourceId,
+          amount,
+        ]),
+      ],
     };
 
     const { transaction_hash } = await account.execute(attackCall);
@@ -93,12 +103,11 @@ const controller = {
         explorer_id,
         structure_id,
         direction,
-        [],
-        // [[36, 1000000000000]],
-        // stealableResources.map(({ resourceId, amount }) => [
-        //   resourceId,
-        //   amount,
-        // ]),
+        stealableResources.length,
+        ...stealableResources.flatMap(({ resourceId, amount }) => [
+          resourceId,
+          amount,
+        ]),
       ],
     };
 
