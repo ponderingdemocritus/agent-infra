@@ -1,5 +1,11 @@
 import type { AnyAgent } from "@daydreamsai/core";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "http://localhost:5173",
+  "Access-Control-Allow-Methods": "GET,HEAD,PUT,PATCH,POST,DELETE",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 export function createAgentServer({
   agent,
   port,
@@ -11,22 +17,18 @@ export function createAgentServer({
     port,
     fetch(req) {
       // const url = new URL(req.url);
-
       // Handle preflight OPTIONS requests
       if (req.method === "OPTIONS") {
-        const headers = new Headers();
-        headers.set("Access-Control-Allow-Origin", "*"); // Or your specific origin
-        headers.set(
-          "Access-Control-Allow-Methods",
-          "GET, POST, PUT, DELETE, OPTIONS"
-        );
-        headers.set(
-          "Access-Control-Allow-Headers",
-          "Content-Type, Authorization"
-        );
-        // headers.set("Access-Control-Allow-Credentials", "true"); // Uncomment if needed
-        // headers.set("Access-Control-Max-Age", "86400"); // Optional: Cache preflight response for 1 day
-        return new Response(null, { status: 204, headers });
+        console.log(req.url, "HERE");
+        return new Response("", {
+          status: 204,
+          // statusText: ""
+          headers: {
+            ...corsHeaders,
+          },
+        });
+      } else {
+        console.log(req.url, "else here");
       }
 
       return new Response(null);
@@ -34,10 +36,11 @@ export function createAgentServer({
     routes: {
       "/workingMemory/:id": {
         GET: async (req) => {
+          console.log("here");
           const workingMemory = await agent.getWorkingMemory(req.params.id);
           return Response.json(workingMemory, {
             headers: {
-              "Access-Control-Allow-Origin": "*",
+              ...corsHeaders,
             },
           });
         },
@@ -49,7 +52,7 @@ export function createAgentServer({
           const { context, ...state } = ctx;
           return Response.json(state, {
             headers: {
-              "Access-Control-Allow-Origin": "*",
+              ...corsHeaders,
             },
           });
         },
@@ -99,8 +102,7 @@ export function createAgentServer({
 
           const res = new Response(stream, {
             headers: {
-              "Access-Control-Allow-Origin": "*",
-
+              ...corsHeaders,
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache",
               Connection: "keep-alive",
@@ -125,7 +127,7 @@ export function createAgentServer({
 
           return Response.json(res, {
             headers: {
-              "Access-Control-Allow-Origin": "*",
+              ...corsHeaders,
             },
           });
         },

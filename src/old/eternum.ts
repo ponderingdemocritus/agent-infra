@@ -6,129 +6,90 @@ import {
   input,
   render,
 } from "@daydreamsai/core";
-
 import { context } from "@daydreamsai/core";
-
 import type { Call } from "starknet";
 import {
   troop_battle_systems,
   troop_movement_systems,
   troop_raid_systems,
-} from "./extract";
-import { createAccount, createNewAccount, transferAccount } from "./account";
+} from "./game/extract";
 import {
   EXPLORER_TROOPS_QUERY,
   TROOPS_IN_RANGE_QUERY,
   TILES_QUERY,
   RESOURCES_QUERY,
   type GraphQLResponse,
-} from "./queries";
-import { BiomeType, ResourcesIds, TileOccupier } from "./types";
+} from "./game/queries";
+import { BiomeType, ResourcesIds, TileOccupier } from "./game/types";
 import {
   generateASCIIMap,
   calculateStamina,
-  fetchCurrentTick,
+  getCurrentTick,
   getNeighborCoord,
   findAdjacentEntities,
   findNearestEntity,
   processResourceData,
   RESOURCES_WEIGHTS_NANOGRAM,
   calculateHexDistance,
-} from "./utils";
+} from "../game/utils";
+import { createAccount, createNewAccount, transferAccount } from "./account";
 
 const INTERVAL_MINUTES = 0.2;
 const MAP_RADIUS = 25;
 
+const explorer_id = 500;
+
 const torii_url =
   "https://api.cartridge.gg/x/eternum-sepolia-interim/torii/graphql";
 
-const explorer_id = parseInt(process.env.EVENT_DATA_1 || "195");
-
 console.info("Initializing eternum extension", JSON.stringify({ explorer_id }));
 
-const account = await createNewAccount();
+// const account = await createNewAccount({ explorer_id });
 
-// // Initialize account
-// const account = createAccount(
-//   "0x4362c7785cdeefb182ed69e8424d4c5e2982042dfda55fae13d3ec100d66686",
-//   "0x2b0fccc159dee6480389df9a56d4ba12f882fcdb00790b3c43ae36cba600043"
-// );
+// // // Initialize account
+const account = createAccount(
+  "0xea8300739b22cef9eab0515cb1453789a78657e412fbc3d1526a2dd946d7ea",
+  "0x18a78a816c5e9bef489ee27700b5064b90e67c79a9c5f564a5d19f8b7a10315"
+);
 
-// // await transferAccount(
-// //   parseInt(process.env.EVENT_DATA_1 || "182"),
-// //   account.address
-// // );
+// account.
+// await transferAccount(explorer_id, account.address);
+
+// throw new Error("here");
 
 const template = `\
-You are an expert gamer and a seasoned commander in the game world of Eternum. 
-You excel at raiding structures and defeating rival explorers. 
-You should take an action if you can, never just be idle.
+<status>
+Position        : (x = {{x}}, y = {{y}})
+Troop Summary   : {{troops}}
+Nearby Entities : {{surrounding}}
+</status>
 
-═══════════════════════════════════════════════════════
-PRIMARY OBJECTIVE
-═══════════════════════════════════════════════════════
-• Stay alive.
-• Stay focused on a target until it is dead or you run out of stamina.
-• Accumulate resources by raiding structures and defeating rival explorers.
-
-SECONDARY OBJECTIVES
-• Continuously explore safe tiles to expand your tactical options.
-• Prioritise high-value, low-risk targets (isolated structures or weakened explorers).
-
-═══════════════════════════════════════════════════════
-CURRENT STATUS
-────────────────────────────────────────────────────────
-• Position        : (x = {{x}}, y = {{y}})
-• Troop Summary   : {{troops}}
-• Nearby Entities : {{surrounding}}
-
-MAP INTEL
-────────────────────────────────────────────────────────
+<map>
 {{mapInfo}}
+</map>
 
 ADJACENT ENTITIES - Ready for Immediate Attack
-────────────────────────────────────────────────────────
+<adjacent_entities>
 {{adjacentEntities}}
+</adjacent_entities>
 
-PATHFINDING RECOMMENDATIONS
-────────────────────────────────────────────────────────
+<pathfinding_recommendations>
 {{pathfindingInfo}}
+</pathfinding_recommendations>
 
 ASCII MINI-MAP ( O = you )
-────────────────────────────────────────────────────────
+<mini_map>
 {{asciiMap}}
+</mini_map>
 
-═══════════════════════════════════════════════════════
-ACTION PROTOCOL
-═══════════════════════════════════════════════════════
-1. SENSE  - Review the map and adjacent entities.
-2. PLAN   - Decide between ATTACK (eternum.attackStructure), RAID (eternum.raidStructure) or MOVE (eternum.moveExplorer) based on stamina and objectives.
-            • If an adjacent target is weak ⇒ ATTACK.
-            • If an adjacent target is a structure ⇒ RAID.
-            • Else move toward the closest lucrative target using {{recommendedPath}}.
-3. ACT    - Issue exactly ONE action.
+<available_directions>
+{{availableDirections}}
+</available_directions>
 
-── MOVEMENT ───────────────────────────────────────────
-You should always move in the direction of the nearest entity, and move more than 1 tile at once when possible, using the mini-map data to plan multi-directional paths. 
-You can always trust the mini-map data to indicate explored tiles. 
-You can only move in the {{availableDirections}}
-
-• Use "eternum.moveExplorer" with an ARRAY of directions to chain moves.
-  Example:  [0, 5]  ⇒ East, then Northeast. 
-
-• Directions (axial):
-    0 → East       1 → Southeast
-    2 → Southwest  3 → West
-    4 → Northwest  5 → Northeast
-
-• Restrictions:
-  - Cannot move through unexplored (Which are represented by the [.]) or occupied tiles.
-  - Ensure sufficient stamina for the full path.
-
-── COMBAT ─────────────────────────────────────────────
-• Use "eternum.attackExplorer" or "eternum.attackStructure" or "eternum.raidStructure".
-• Target must occupy one of the six adjacent hexes (see list above).
-• Supply the direction that matches the target's position.`;
+<recommended_path>
+{{recommendedPath}}
+</recommended_path>
+`;
 
 type Tile = {
   biome: number;
@@ -203,13 +164,58 @@ type NearestEntities = EternumMemory["mapState"]["nearestEntities"];
 
 const eternumContext = context({
   type: "eternum",
-
   key: ({ channelId }) => channelId,
-  description: `I want you to act as a Player in the Eternum game.`,
-  maxWorkingMemorySize: 15,
-  schema: z.object({ channelId: z.string() }),
+  instructions: `\
+You are an expert gamer and a seasoned commander in the game world of Eternum. 
+You excel at raiding structures and defeating rival explorers. 
+You should take an action if you can, never just be idle.
 
-  create(state): EternumMemory {
+═══════════════════════════════════════════════════════
+PRIMARY OBJECTIVE
+═══════════════════════════════════════════════════════
+• Stay alive.
+• Stay focused on a target until it is dead or you run out of stamina.
+• Accumulate resources by raiding structures and defeating rival explorers.
+
+SECONDARY OBJECTIVES
+• Continuously explore safe tiles to expand your tactical options.
+• Prioritise high-value, low-risk targets (isolated structures or weakened explorers). 
+
+═══════════════════════════════════════════════════════
+ACTION PROTOCOL
+═══════════════════════════════════════════════════════
+1. SENSE  - Review the map and adjacent entities.
+2. PLAN   - Decide between ATTACK (eternum.attackStructure), RAID (eternum.raidStructure) or MOVE (eternum.moveExplorer) based on stamina and objectives.
+            • If an adjacent target is weak ⇒ ATTACK.
+            • If an adjacent target is a structure ⇒ RAID.
+            • Else move toward the closest lucrative target
+3. ACT    - Issue exactly ONE action.
+
+── MOVEMENT ───────────────────────────────────────────
+You should always move in the direction of the nearest entity, and move more than 1 tile at once when possible, using the mini-map data to plan multi-directional paths. 
+You can always trust the mini-map data to indicate explored tiles. 
+You can only move in the <available_directions>
+
+• Use "eternum.moveExplorer" with an ARRAY of directions to chain moves.
+  Example:  [0, 5]  ⇒ East, then Northeast. 
+
+• Directions (axial):
+    0 → East       1 → Southeast
+    2 → Southwest  3 → West
+    4 → Northwest  5 → Northeast
+
+• Restrictions:
+  - Cannot move through unexplored (Which are represented by the [.]) or occupied tiles.
+  - Ensure sufficient stamina for the full path.
+
+── COMBAT ─────────────────────────────────────────────
+• Use "eternum.attackExplorer" or "eternum.attackStructure" or "eternum.raidStructure".
+• Target must occupy one of the six adjacent hexes (see list above).
+• Supply the direction that matches the target's position.
+
+`,
+  schema: z.object({ channelId: z.string() }),
+  create(): EternumMemory {
     return {
       x: 0,
       y: 0,
@@ -277,15 +283,7 @@ const eternumContext = context({
 You have ${adjacentEntities} entities adjacent to you that can be attacked:
 ${memory.mapState.adjacentEntities
   .map(
-    (
-      entity: {
-        occupier_id: number;
-        col: number;
-        row: number;
-        direction: number;
-      },
-      index: number
-    ) =>
+    (entity, index) =>
       `${index + 1}. Entity ID: ${entity.occupier_id} at (${entity.col}, ${
         entity.row
       }) - Direction: ${entity.direction}`
@@ -308,15 +306,7 @@ You can attack these entities with the attackOtherExplorers or attackStructure a
 Nearest entities to target:
 ${memory.mapState.nearestEntities
   .map(
-    (
-      entity: {
-        occupier_id: number;
-        col: number;
-        row: number;
-        distance: number;
-      },
-      index: number
-    ) =>
+    (entity, index) =>
       `${index + 1}. Entity ID: ${entity.occupier_id} at (${entity.col}, ${
         entity.row
       }) - Distance: ${entity.distance}`
@@ -400,7 +390,7 @@ Use the moveExplorer action with the recommended directions to approach the near
         state.memory.y = y; // Access via state.memory
 
         // Fetch current tick for stamina calculation
-        const currentTick = await fetchCurrentTick();
+        const currentTick = await getCurrentTick();
 
         // Process troop stamina
         const troop = troopNode.troops;
@@ -551,7 +541,7 @@ Use the moveExplorer action with the recommended directions to approach the near
       }
 
       if (surroundingResponse.s1EternumExplorerTroopsModels?.edges) {
-        const currentTick = await fetchCurrentTick(); // Fetch tick again if needed or pass from above
+        const currentTick = await getCurrentTick(); // Fetch tick again if needed or pass from above
         state.memory.surrounding =
           surroundingResponse.s1EternumExplorerTroopsModels.edges
             .filter((edge) => edge?.node?.explorer_id !== explorer_id) // Filter out self
@@ -642,7 +632,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process the single troop
   //     const troop = node.troops;
@@ -713,7 +703,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process each troop's stamina
   //     const processedTroops = response.s1EternumExplorerTroopsModels.edges.map(
@@ -786,7 +776,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process troops - ensure troops is treated as a single object
   //     const troop = nodeData.troops;
@@ -834,7 +824,7 @@ Use the moveExplorer action with the recommended directions to approach the near
       `<action_call name="eternum.moveExplorer">{"direction": [0,1,2,3,4]}</action_call>`,
       `<action_call name="eternum.moveExplorer">{"direction": [0,1,2,3,4,5]}</action_call>`,
     ],
-    description: `\
+    instructions: `\
 Move the explorer to a new position. 
 You can move multiple hexes in one action by providing an array of directions. 
 Each direction will be executed in sequence, allowing you to move multiple hexes in one turn. 

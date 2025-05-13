@@ -1,0 +1,4 @@
+- Use the `grid_data` to understand the `biome` of different hexes, as this might affect movement, combat, or resource availability.
+- Note `entity` to be aware of other players, NPCs, or potential threats in specific locations.
+- Identify `realm_affiliation` to understand territorial control and potential allies or enemies.
+- Correlate your `player.current_location` with the `game_map` to understand your immediate surroundings.

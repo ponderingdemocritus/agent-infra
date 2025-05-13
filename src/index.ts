@@ -1,20 +1,30 @@
-import "./polyfill";
-import Bun from "bun";
+import "../markdown-plugin";
 import {
   context,
   createDreams,
+  createMemory,
+  createMemoryStore,
+  createVectorStore,
   Logger,
   LogLevel,
   validateEnv,
   type AnyAgent,
+  type MemoryStore,
 } from "@daydreamsai/core";
 import { z } from "zod";
-
-import { chat } from "./chat";
 import { openrouter } from "@openrouter/ai-sdk-provider";
-import { eternum } from "./eternum";
 import { createInterface } from "readline/promises";
 import { createAgentServer } from "./server";
+import { game_loop, player_context } from "./contexts/player";
+import { game_map_context } from "./contexts/game_map";
+import { game_rules_and_directives } from "./contexts/game_rules";
+import { persona_context } from "./contexts/persona";
+import { intentions_context } from "./contexts/intentions";
+import { known_entities_context } from "./contexts/know_entities";
+
+import { createStorage } from "unstorage";
+import fsDriver from "unstorage/drivers/fs";
+import path from "path";
 
 validateEnv(
   z.object({
@@ -23,13 +33,57 @@ validateEnv(
   })
 );
 
+const eternumSession = context({
+  type: "eternum-session",
+  schema: { explorerId: z.number(), sessionId: z.string() },
+  key: ({ explorerId, sessionId }) => `${explorerId}-${sessionId}`,
+  inputs: {
+    message: {
+      schema: z.string(),
+    },
+  },
+  outputs: {
+    message: {
+      schema: z.string(),
+      examples: [`<output type="message">Hi!</output>`],
+    },
+  },
+
+  async onStep() {
+    await cli.question("Press enter to continue...");
+  },
+}).use(({ args }) => [
+  { context: game_rules_and_directives, args: {} },
+  { context: game_loop, args: {} },
+  { context: persona_context, args: { id: "gronk_the_smasher" } },
+  { context: player_context, args: { playerId: args.explorerId } },
+  { context: game_map_context, args: { playerId: args.explorerId } },
+  { context: known_entities_context, args: { playerId: args.explorerId } },
+  { context: intentions_context, args: { playerId: args.explorerId } },
+]);
+
 // Create agent with async initialization
-async function initializeAgent() {
+async function initializeAgent({ explorerId }: { explorerId: number }) {
+  const baseStorage = path.resolve(import.meta.dir, `./data/${explorerId}`);
+
+  const storage = createStorage({
+    driver: fsDriver({
+      base: baseStorage,
+    }),
+  });
+
+  const store: MemoryStore = {
+    ...storage,
+    async delete(key) {
+      await storage.remove(key);
+    },
+  };
+
   try {
     const agent = createDreams({
       logger: new Logger({ level: LogLevel.INFO }),
       model: openrouter("google/gemini-2.5-flash-preview"),
-      extensions: [chat, eternum],
+      memory: createMemory(store, createVectorStore()),
     }).start();
 
     console.log(`
@@ -50,57 +104,22 @@ async function initializeAgent() {
 }
 
 // Start the agent
-const agent = await initializeAgent();
+const agent = await initializeAgent({ explorerId: 500 });
 
-// const cli = createInterface({
-//   input: process.stdin,
-//   output: process.stdout,
-// });
-
-// const eternumSession = context({
-//   type: "eternum-session",
-//   schema: { id: z.string() },
-//   key: ({ id }) => id,
-//   maxSteps: 2,
-//   inputs: {
-//     message: {
-//       schema: z.string(),
-//     },
-//   },
-//   outputs: {
-//     message: {
-//       schema: z.string(),
-//       examples: [`<output type="message">Hi!</output>`],
-//     },
-//   },
-
-//   async onStep() {
-//     await cli.question("Press enter to continue...");
-//   },
-// }).use(() => [
-//   { context: eternum.contexts!.eternum, args: { channelId: "eternum" } },
-// ]);
-
-// const res = await agent.send({
-//   context: eternumChat,
-//   args: { id: "chat-1" },
-//   input: {
-//     type: "message",
-//     data: "Tell me what u see in the game dont play for now.",
-//   },
-// });
-
-// console.log({ res });
+const cli = createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
 //SERVER
-// // await agent.getContext({
-// //   context: eternumSession,
-// //   args: { id: "session-1" },
-// // });
+await agent.getContext({
+  context: eternumSession,
+  args: { explorerId: 500, sessionId: "session-1" },
+});
 
-// // const server = createAgentServer({
-// //   agent,
-// //   port: 7777,
-// // });
+const server = createAgentServer({
+  agent,
+  port: 7777,
+});
 
-// // console.log({ server });
+console.log({ server });

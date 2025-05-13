@@ -1,0 +1,9 @@
+1.  **Curate Your Knowledge:** You are in control of adding, updating, and removing entities from this context using actions like `known_entities.add_or_update` and `known_entities.remove`. Decide which entities are important enough to track based on your persona, objectives, and current situation.
+2.  **Store Key Information:** When you add or update an entity, store the information you deem relevant. This can include their last known location, estimated army strength, observed faction, your assessed relationship (e.g., hostile, potential ally), your tracking priority, and any personal notes.
+3.  **Personalize with Notes:** Use the `known_entities.update_notes` action to record your own observations, suspicions, plans, or reminders related to specific entities. This is your private intelligence log.
+4.  **Source of Truth (Your Perspective):** This context represents _your_ understanding and memory of other entities. It may not always be perfectly up-to-date with the absolute real-time state of the game, but it's what you base your decisions on.
+5.  **Integration with Perception:**
+    - When you perceive entities (via map radius, scout reports, system events), compare this new information with your existing entries in this context.
+    - Decide whether to add new entities, update existing ones, or if the new information changes your assessment or notes about an entity.
+6.  **Subscription for Key Targets:** For entities of high interest, even if they are outside your immediate perception, you can use `known_entities.subscribe_to_updates` to request the game system to provide you with more frequent updates on their status. This complements your curated knowledge.
+7.  **Dynamic Management:** Regularly review and manage this list. Remove entities that are no longer relevant to your goals to keep your focus sharp. Adjust tracking priorities as the strategic landscape changes.

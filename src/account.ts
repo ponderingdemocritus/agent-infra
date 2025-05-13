@@ -7,7 +7,7 @@ import {
   stark,
   type Call,
 } from "starknet";
-import { ownership_systems } from "./extract";
+import { ownership_systems } from "./game/extract";
 import { CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 
 // Configuration
@@ -90,7 +90,11 @@ export function createAccount(publicKey: string, privateKey: string) {
 }
 
 // Create new account
-export const createNewAccount = async () => {
+export const createNewAccount = async ({
+  explorer_id,
+}: {
+  explorer_id: number;
+}) => {
   // Generate public and private key pair
   const privateKey = stark.randomAddress();
   console.log("New ArgentX account:\nprivateKey=", privateKey);
@@ -136,15 +140,8 @@ export const createNewAccount = async () => {
       contract_address
     );
 
-    await transferAccount(
-      parseInt(process.env.EVENT_DATA_1 || "182"),
-      contract_address
-    );
-    console.log(
-      "✅ Account transferred to ",
-      contract_address,
-      parseInt(process.env.EVENT_DATA_1 || "182")
-    );
+    await transferAccount(explorer_id, contract_address);
+    console.log("✅ Account transferred to ", contract_address, explorer_id);
 
     return account;
   } catch (error) {
