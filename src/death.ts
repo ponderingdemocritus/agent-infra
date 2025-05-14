@@ -69,7 +69,7 @@ export async function checkForDeath() {
 
       console.log("GraphQL query successful.");
 
-      const troops = response.s1EternumExplorerTroopsModels.edges;
+      const troops = response?.s1EternumExplorerTroopsModels?.edges;
 
       if (Array.isArray(troops) && troops.length === 0) {
         console.log(

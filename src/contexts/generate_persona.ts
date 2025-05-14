@@ -1,5 +1,3 @@
-// src/contexts/generate_persona.ts
-
 // --- Interfaces ---
 interface CoreMotivation {
   motivation: string;
@@ -475,7 +473,7 @@ function generateName(traits: NumericTraits, random: SeededRandom): string {
 }
 
 // --- Generation Function ---
-function generatePersona(seed: number): Persona {
+async function generatePersona(seed: number): Promise<Persona> {
   const random = new SeededRandom(seed);
 
   // Generate numeric traits for name generation

@@ -670,14 +670,14 @@ func handleEventEmitted(event EventPayload) {
 	}
 	
 	// Add EVENT_KEY_N and EVENT_DATA_N if needed by the agent, but JSON is often easier
-	/*
+	
 	for i, key := range keys {
 		envVars = append(envVars, v1.EnvVar{Name: fmt.Sprintf("EVENT_KEY_%d", i), Value: key})
 	}
 	for i, val := range data {
 		envVars = append(envVars, v1.EnvVar{Name: fmt.Sprintf("EVENT_DATA_%d", i), Value: val})
 	}
-	*/
+	
 	
 	// Add other environment variables from the event payload
 	if event.Environment != nil {
