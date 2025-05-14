@@ -106,8 +106,8 @@ var (
 	openrouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 
 	// Command line flags
-	startBlockNumber = flag.Int("block", 627461, "Block number to start listening from (0 means latest)")
-	contractAddress  = flag.String("contract", "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23", "Contract address to listen for events")
+	startBlockNumber = flag.Int("block", 756800, "Block number to start listening from (0 means latest)")
+	contractAddress  = flag.String("contract", "0x198cbb29ed691e3e143da013736cb32d2eb35835414e0c5ba758f44265d7a52", "Contract address to listen for events")
 	eventSelector    = flag.String("selector", "0x4843fbb65c717bb5ece80d635a568aa1c688f880f0519e3de18bf3bae89abf8", "Event selector to filter for")
 	caseInsensitive  = flag.Bool("case-insensitive", true, "Whether to do case-insensitive comparison for the selector")
 	partialMatch     = flag.Bool("partial-match", true, "Whether to allow partial matches for the selector")
@@ -126,7 +126,7 @@ var (
 
 	// Default event filter using the new EventEmittedFilter structure
 	defaultEventFilter = StarknetEventFilter{
-		ContractAddress: "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23",
+		ContractAddress: "0x198cbb29ed691e3e143da013736cb32d2eb35835414e0c5ba758f44265d7a52",
 		FromBlock:      "latest",  // Start from latest block by default
 		// Filter for EventEmitted events with the specific selector
 		Keys:          [][]string{},
@@ -135,7 +135,7 @@ var (
 
 	// Default EventEmitted filter specifically for EventEmitted events
 	defaultEventEmittedFilter = EventEmittedFilter{
-		ContractAddress: "0x4726e48f50c7bfcb4eb7d89790fdf2718911207f3e8d90ada0caf36c4ff2c23",
+		ContractAddress: "0x198cbb29ed691e3e143da013736cb32d2eb35835414e0c5ba758f44265d7a52",
 		Keys:          [][]string{}, // Empty keys array to get all events
 		FromBlock:      "latest", // Will be updated based on command line flags
 		ChunkSize:      100,
