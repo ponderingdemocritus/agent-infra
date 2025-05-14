@@ -1,14 +1,10 @@
-import { action, context } from "@daydreamsai/core";
+import { action, context, type AnyAgent } from "@daydreamsai/core";
 import padaInstructions from "./instructions/pada.md";
 import playerInstructions from "./instructions/player_character.md";
-import {
-  calculateHexDistance,
-  getNeighborCoord,
-  processResourceData,
-} from "../game/utils";
+import { processResourceData } from "../game/utils";
 import { eternum } from "../game/client";
 import { z } from "zod";
-import { createAccount, createNewAccount } from "../account";
+import { createAccount, createNewAccount } from "../game/account";
 import {
   findDirectionToNeighbor,
   findShortestPath,
@@ -38,15 +34,35 @@ export const game_loop = context({
   }),
 ]);
 
-type Troops = {
-  category: string;
-  tier: number;
-  count: number;
-  stamina: {
-    amount: string;
-    updated_tick: string;
-  };
+type Wallet = {
+  publicKey: string;
+  privateKey: string;
 };
+
+async function getExplorerAccount({
+  agent,
+  explorer_id,
+}: {
+  agent: AnyAgent;
+  explorer_id: number;
+}) {
+  const keys = await agent.memory.store.get<Wallet>(
+    `eternum.wallet.${explorer_id}`
+  );
+
+  if (keys) return createAccount(keys.publicKey, keys.privateKey);
+
+  const { account, publicKey, privateKey } = await createNewAccount({
+    explorer_id,
+  });
+
+  await agent.memory.store.set(`eternum.wallet.${explorer_id}`, {
+    publicKey,
+    privateKey,
+  });
+
+  return account;
+}
 
 const explorerController = {
   async moveTo(
@@ -115,32 +131,10 @@ It's the primary source for understanding Agent's current status, capabilities, 
   instructions: "\n" + playerInstructions,
 
   async setup(args, settings, agent) {
-    // FOR DEV
-    const keys = {
-      publicKey:
-        "0x254300e8d78f9483ade1c69d57e95e55ec93c10a5d0f7c73ca0819b8be5cef1",
-      privateKey:
-        "0x3ef88a2dd8ed5967be2f900fe43627434d5ffb8420f2f904442c92bd6d88b49",
-    };
-
-    if (!keys) {
-      throw new Error(
-        `Key pair not found for playerId ${args.playerId}. Please add it to the keys map.`
-      );
-    }
-
-    const { publicKey, privateKey } = keys;
-
     agent.taskRunner.setQueue("eternum.player", 1);
 
-    if (process.env.RUNTIME == "DEV") {
-      return {
-        account: createAccount(publicKey, privateKey),
-      };
-    }
-
     return {
-      account: await createNewAccount({ explorer_id: args.playerId }),
+      account: await getExplorerAccount({ agent, explorer_id: args.playerId }),
     };
   },
 
