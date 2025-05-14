@@ -1,14 +1,8 @@
-import { fetchGraphQL } from "@daydreamsai/core";
-import { EXPLORER_TROOPS_QUERY, type GraphQLResponse } from "./game/queries";
+import { eternum } from "./game/client";
 
-const GRAPHQL_ENDPOINT =
-  process.env.GRAPHQL_ENDPOINT ||
-  "https://api.cartridge.gg/x/eternum-sepolia-interim/torii/graphql";
 const POLLING_INTERVAL_MS = 30000; // 180 seconds
 const SERVER_ENDPOINT =
   "http://dreams-agents-server-service.my-agents.svc.cluster.local:80";
-
-const explorer_id = parseInt(process.env.EVENT_DATA_1 || "195");
 
 async function signalDeathToServer(eventId: string) {
   const signalUrl = `${SERVER_ENDPOINT}/signal-death/${encodeURIComponent(
@@ -31,52 +25,29 @@ async function signalDeathToServer(eventId: string) {
   }
 }
 
-export async function checkForDeath() {
-  console.log("Agent starting...");
-  const explorerId = process.env.EVENT_ID_1;
-
-  const eventId = process.env.EVENT_ID;
-
-  if (explorerId === null) {
-    console.error(
-      `FATAL: Missing EVENT_ID ('${explorerId}') or couldn't parse explorer_id ('${explorerId}') from env. Exiting.`
-    );
-    process.exit(1);
-  }
-
+export async function checkForDeath({
+  explorerId,
+  eventId,
+}: {
+  explorerId: number;
+  eventId: number;
+}) {
   console.log(
     `Agent configured for Event ID: ${explorerId}, Explorer ID: ${explorerId}`
   );
 
-  // --- Start Core Agent Logic ---
-  console.log("Running main agent task...");
-  // await performAgentActions(explorerId); // Your main logic here
-
-  // --- Start Polling ---
   console.log(`Starting death polling for Explorer ID: ${explorerId}`);
   const pollInterval = setInterval(async () => {
     console.log(`Polling health for Explorer ID: ${explorerId}...`);
     try {
-      const response = await fetchGraphQL<GraphQLResponse>(
-        GRAPHQL_ENDPOINT,
-        EXPLORER_TROOPS_QUERY,
-        { explorer_id: explorer_id }
-      );
+      const explorer = await eternum.getExplorer(explorerId);
 
-      if (response instanceof Error) {
-        throw response;
-      }
-
-      console.log("GraphQL query successful.");
-
-      const troops = response?.s1EternumExplorerTroopsModels?.edges;
-
-      if (Array.isArray(troops) && troops.length === 0) {
+      if (explorer.troops === 0) {
         console.log(
           `Explorer ${explorerId} has no troops. NPC considered dead.`
         );
         clearInterval(pollInterval);
-        await signalDeathToServer(eventId || "");
+        await signalDeathToServer(eventId.toString());
         console.log(`Exiting agent process for Event ID ${explorerId}.`);
         process.exit(0);
       } else {

@@ -1,5 +1,7 @@
 import {
   createDreams,
+  createMemory,
+  createVectorStore,
   formatPromptSections,
   formatXml,
   mainPrompt,
@@ -17,12 +19,22 @@ import {
 import { findShortestPath } from "./game/pathfinding";
 import { persona_context } from "./contexts/persona";
 import { intentions_context } from "./contexts/intentions";
+import path from "path";
+import { createStore } from "./contexts/storage";
 
-const agent = createDreams({});
+const explorerId = 1332;
+
+const store = createStore(
+  path.resolve(import.meta.dir, `./data/${explorerId}`)
+);
+
+const agent = createDreams({
+  memory: createMemory(store, createVectorStore()),
+});
 
 const player = await agent.getContext({
   context: player_context,
-  args: { playerId: 500 },
+  args: { playerId: explorerId },
 });
 
 const workingMemory = await agent.getWorkingMemory(player.id);
@@ -33,9 +45,9 @@ const states = await prepareContexts({
   workingMemory,
   params: {
     contexts: [
-      { context: persona_context, args: { id: "gronk_the_smasher" } },
-      { context: game_map_context, args: { playerId: 500 } },
-      { context: intentions_context, args: { playerId: 500 } },
+      // { context: persona_context, args: { playerId: explorerId } },
+      // { context: game_map_context, args: { playerId: explorerId } },
+      { context: intentions_context, args: { playerId: explorerId } },
     ],
   },
 });

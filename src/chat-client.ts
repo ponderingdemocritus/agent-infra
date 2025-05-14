@@ -26,6 +26,26 @@ export const messageSchema = z.object({
     .describe("The conversation ID (if applicable)"),
 });
 
+export type ChatMessage<Data = { content: string }> = {
+  userId: string;
+  userName: string;
+  platformId: "chat";
+  threadId: string;
+  directMessage: boolean;
+  contentId: string;
+  data: Data;
+};
+
+export function isGlobalMsg(
+  msg: ChatMessage<any>
+): msg is ChatMessage<{ content: string }> {
+  return msg.threadId === "global";
+}
+
+interface ChatEvents {
+  [event: string]: (...args: any[]) => void;
+}
+
 class ChatClient {
   public socket: Socket;
   private logger: Logger;
@@ -66,8 +86,17 @@ class ChatClient {
   }
 
   private setupListeners() {
-    this.socket.on("directMessage", ({ senderId, message }) => {
-      this.logger.debug("ChatClient", `DM from ${senderId}`, { message });
+    this.socket.on("initialData", (data) => {
+      // this.logger.debug("ChatClient", `initaldata`, data);
+      // Update UI handled by message stream
+    });
+
+    this.socket.on("roomJoined", (data) => {
+      this.logger.debug("ChatClient", `roomJoined`, data);
+    });
+
+    this.socket.on("directMessage", (data) => {
+      this.logger.debug("ChatClient", `DM`, data);
       // Update UI handled by message stream
     });
 
@@ -92,7 +121,7 @@ class ChatClient {
    * Start listening to chat messages.
    * The onData callback can be used to update UI or process messages.
    */
-  public startMessageStream(onData: (data: any) => void) {
+  public startMessageStream(onData: <T>(data: ChatMessage<T>) => void) {
     this.logger.info("ChatClient", "Starting message stream...");
 
     // Direct messages
@@ -165,7 +194,6 @@ class ChatClient {
         threadId: "global",
         directMessage: false,
         contentId: Date.now().toString(),
-        roomId: "global",
         data: {
           content: message,
           roomId: "global",

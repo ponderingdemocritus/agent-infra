@@ -57,27 +57,30 @@ export const logger = {
 // Configuration for troops
 export const TROOP_STAMINA_CONFIG = {
   Knight: {
-    staminaInitial: 100,
-    staminaMax: 200,
+    initial: 100,
+    max: 120,
   },
   Crossbowman: {
-    staminaInitial: 100,
-    staminaMax: 200,
+    initial: 100,
+    max: 120,
   },
   Paladin: {
-    staminaInitial: 100,
-    staminaMax: 200,
+    initial: 100,
+    max: 140,
   },
 };
 
 // World configuration (would ideally come from the blockchain)
 export const WORLD_CONFIG = {
   troop_stamina_config: {
-    stamina_gain_per_tick: 1, // Stamina gained per tick
+    stamina_gain_per_tick: 20, // Stamina gained per tick
     stamina_initial: 100, // Initial stamina
     stamina_bonus_value: 10, // Bonus/penalty for biome effects
-    stamina_travel_stamina_cost: 30, // Base cost for travel
-    stamina_explore_stamina_cost: 20, // Cost for exploration
+    stamina_travel_stamina_cost: 20, // Base cost for travel
+    stamina_explore_stamina_cost: 30, // Cost for exploration
+  },
+  tick_config: {
+    armies_tick_in_seconds: 120,
   },
 };
 
@@ -140,29 +143,40 @@ export function getTravelStaminaCost(
 export function calculateStamina(
   staminaValue: StaminaValue,
   troopCategory: string,
+  troopTier: string,
   currentTick: number
 ): {
   current: number;
   updated_tick: number;
   max: number;
-  staminaCostForTravel: number;
-  staminaCostForExplore: number;
+  costForTravel: number;
+  costForExplore: number;
 } {
+  // Get standard costs for travel and explore
+  const costForTravel =
+    WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost;
+  const costForExplore =
+    WORLD_CONFIG.troop_stamina_config.stamina_explore_stamina_cost;
+
   // Convert hex strings to numbers
   const current = parseInt(staminaValue.amount, 16);
   const updatedTick = parseInt(staminaValue.updated_tick, 16);
 
   // Get troop type
-  const troopType = getTroopType(troopCategory);
+  // const troopType = getTroopType(troopCategory);
 
   // Get max stamina for this troop type
-  const troopConfig = TROOP_STAMINA_CONFIG[
-    troopCategory as keyof typeof TROOP_STAMINA_CONFIG
-  ] || {
-    staminaInitial: WORLD_CONFIG.troop_stamina_config.stamina_initial,
-    staminaMax: 200,
-  };
-  const max = troopConfig.staminaMax;
+
+  let tierBonus = 0;
+  if (troopTier === "T2") {
+    tierBonus = 20;
+  } else if (troopTier === "T3") {
+    tierBonus = 40;
+  }
+
+  const max =
+    TROOP_STAMINA_CONFIG[troopCategory as keyof typeof TROOP_STAMINA_CONFIG]
+      .max + tierBonus;
 
   // Stamina gain per tick from config
   const staminaGainPerTick =
@@ -174,10 +188,8 @@ export function calculateStamina(
       current,
       updated_tick: updatedTick,
       max,
-      staminaCostForTravel:
-        WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost,
-      staminaCostForExplore:
-        WORLD_CONFIG.troop_stamina_config.stamina_explore_stamina_cost,
+      costForTravel,
+      costForExplore,
     };
   }
 
@@ -186,18 +198,12 @@ export function calculateStamina(
   const totalStaminaSinceLastTick = numTicksPassed * staminaGainPerTick;
   const newAmount = Math.min(current + totalStaminaSinceLastTick, max);
 
-  // Get standard costs for travel and explore
-  const staminaCostForTravel =
-    WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost;
-  const staminaCostForExplore =
-    WORLD_CONFIG.troop_stamina_config.stamina_explore_stamina_cost;
-
   return {
     current: newAmount,
     updated_tick: currentTick,
     max,
-    staminaCostForTravel,
-    staminaCostForExplore,
+    costForTravel,
+    costForExplore,
   };
 }
 
@@ -207,7 +213,7 @@ export function getCurrentTick(): number {
   // For testing, we can return a large number to simulate the current tick
   const currentTimestamp = Math.floor(Date.now() / 1000);
   // Convert timestamp to game ticks (assuming armies tick is 15 seconds)
-  return Math.floor(currentTimestamp / TICKS.Armies);
+  return Math.floor(currentTimestamp);
 }
 
 enum ResourcesIds {
@@ -793,11 +799,7 @@ export const getRemainingCapacityInKg = (storage: {
   current: number;
   max: number;
 }) => {
-  const weight = storage.current;
-
-  if (!weight) return 0;
-
-  return nanogramToKg(Number(storage.max - storage.current)) || 0;
+  return nanogramToKg(storage.max - storage.current);
 };
 
 export const getRemainingCapacity = (
@@ -833,11 +835,20 @@ export const getStealableResources = (
 
   let remainingCapacity = capacityAfterRaid;
 
+  console.log({ remainingCapacity });
+
   [...targetArmyResources]
     .sort((a, b) => b.amount - a.amount)
     .forEach((resource) => {
       const availableAmount = divideByPrecision(resource.amount);
       const resourceWeight = getResourceWeightKg(resource.resourceId);
+
+      console.log({
+        resource,
+        availableAmount,
+        resourceWeight,
+        remainingCapacity,
+      });
 
       if (remainingCapacity > 0) {
         let maxStealableAmount;
@@ -891,13 +902,15 @@ export const processResourceData = (
 
   // Extract all resources with non-zero balances
   const availableResources = Object.entries(balances)
-    .filter(([key]) => resourceIdMapping[key])
+    .filter(([key, amount]) => resourceIdMapping[key] && amount > 0)
     .map(([key, amount]) => {
       return {
         resourceId: resourceIdMapping[key],
         amount,
       };
     });
+
+  console.log({ availableResources });
 
   // Get stealable resources based on capacity
   // Provide a type–safe lookup for the nanogram weight table

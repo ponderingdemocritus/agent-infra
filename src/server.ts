@@ -16,19 +16,11 @@ export function createAgentServer({
   return Bun.serve({
     port,
     fetch(req) {
-      // const url = new URL(req.url);
-      // Handle preflight OPTIONS requests
       if (req.method === "OPTIONS") {
-        console.log(req.url, "HERE");
         return new Response("", {
           status: 204,
-          // statusText: ""
-          headers: {
-            ...corsHeaders,
-          },
+          headers: corsHeaders,
         });
-      } else {
-        console.log(req.url, "else here");
       }
 
       return new Response(null);
@@ -36,7 +28,6 @@ export function createAgentServer({
     routes: {
       "/workingMemory/:id": {
         GET: async (req) => {
-          console.log("here");
           const workingMemory = await agent.getWorkingMemory(req.params.id);
           return Response.json(workingMemory, {
             headers: {
@@ -67,6 +58,8 @@ export function createAgentServer({
               console.log("Client connected to event stream");
 
               function setPingTimer() {
+                clearInterval(pingTimer);
+
                 pingTimer = setInterval(() => {
                   controller.enqueue(`data: ping\n\n`);
                 }, 1000);
@@ -87,10 +80,10 @@ export function createAgentServer({
               });
 
               req.signal.addEventListener("abort", () => {
+                clearInterval(pingTimer);
                 console.log("closed");
                 controller.close();
                 unsubscribe?.();
-                clearInterval(pingTimer);
               });
             },
             cancel() {
@@ -100,7 +93,7 @@ export function createAgentServer({
             },
           });
 
-          const res = new Response(stream, {
+          return new Response(stream, {
             headers: {
               ...corsHeaders,
               "Content-Type": "text/event-stream",
@@ -108,8 +101,6 @@ export function createAgentServer({
               Connection: "keep-alive",
             },
           });
-
-          return res;
         },
       },
       "/send/:id": {

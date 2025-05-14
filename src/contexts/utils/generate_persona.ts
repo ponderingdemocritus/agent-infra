@@ -553,32 +553,32 @@ async function generatePersona(seed: number): Promise<Persona> {
   };
 }
 
-// --- Main Execution ---
-function main() {
-  const args = process.argv.slice(2); // Get command line arguments, excluding 'node' and script path
-  let seed = Math.floor(Math.random() * 1000000); // Default random seed
+// // --- Main Execution ---
+// function main() {
+//   const args = process.argv.slice(2); // Get command line arguments, excluding 'node' and script path
+//   let seed = Math.floor(Math.random() * 1000000); // Default random seed
 
-  if (args.length > 0) {
-    const parsedSeed = parseInt(args[0], 10);
-    if (!isNaN(parsedSeed)) {
-      seed = parsedSeed;
-    } else {
-      console.error(
-        `Invalid seed provided: "${args[0]}". Using a random seed.`
-      );
-    }
-  } else {
-    console.log("No seed provided. Using a random seed.");
-  }
+//   if (args.length > 0) {
+//     const parsedSeed = parseInt(args[0], 10);
+//     if (!isNaN(parsedSeed)) {
+//       seed = parsedSeed;
+//     } else {
+//       console.error(
+//         `Invalid seed provided: "${args[0]}". Using a random seed.`
+//       );
+//     }
+//   } else {
+//     console.log("No seed provided. Using a random seed.");
+//   }
 
-  console.log(`Generating persona with seed: ${seed}`);
-  const persona = generatePersona(seed);
-  console.log(JSON.stringify(persona, null, 2));
-}
+//   console.log(`Generating persona with seed: ${seed}`);
+//   const persona = generatePersona(seed);
+//   console.log(JSON.stringify(persona, null, 2));
+// }
 
-if (require.main === module) {
-  main();
-}
+// if (require.main === module) {
+//   main();
+// }
 
 // Export for potential use in other modules (optional)
 export { generatePersona, SeededRandom, generateName };
@@ -598,3 +598,19 @@ export type {
 // 3. Execute: ts-node src/contexts/generate_persona.ts [your_seed_number]
 //    Example: ts-node src/contexts/generate_persona.ts 12345
 //    If no seed is provided, a random one will be used.
+
+export function generatePersonaUUID(seed: number): string {
+  // Use seed to generate deterministic id
+  const hash1 = (seed * 9301 + 49297) % 233280;
+  const hash2 = (hash1 * 9301 + 49297) % 233280;
+  const hash3 = (hash2 * 9301 + 49297) % 233280;
+  const hash4 = (hash3 * 9301 + 49297) % 233280;
+
+  const part1 = hash1.toString(36).substring(0, 5);
+  const part2 = hash2.toString(36).substring(0, 5);
+  const part3 = hash3.toString(36).substring(0, 5);
+  const part4 = hash4.toString(36).substring(0, 5);
+
+  // Combine parts with separators to create a longer ID
+  return `${part1}-${part2}-${part3}-${part4}`;
+}

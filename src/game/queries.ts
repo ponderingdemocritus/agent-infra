@@ -142,6 +142,8 @@ export const RESOURCES_QUERY = /* GraphQL */ `
           PALADIN_T1_BALANCE
           PALADIN_T2_BALANCE
           PALADIN_T3_BALANCE
+          WHEAT_BALANCE
+          FISH_BALANCE
         }
       }
     }
@@ -166,7 +168,7 @@ export type Explorer = {
   };
   troops: {
     category: string;
-    tier: number;
+    tier: string;
     count: string;
     stamina: {
       amount: string;

@@ -1,7 +1,7 @@
 import { action, context, type AnyAgent } from "@daydreamsai/core";
 import padaInstructions from "./instructions/pada.md";
 import playerInstructions from "./instructions/player_character.md";
-import { processResourceData } from "../game/utils";
+import { processResourceData, WORLD_CONFIG } from "../game/utils";
 import { eternum } from "../game/client";
 import { z } from "zod";
 import { createAccount, createNewAccount } from "../game/account";
@@ -52,6 +52,8 @@ async function getExplorerAccount({
 
   if (keys) return createAccount(keys.publicKey, keys.privateKey);
 
+  console.log("creating new account");
+
   const { account, publicKey, privateKey } = await createNewAccount({
     explorer_id,
   });
@@ -65,18 +67,40 @@ async function getExplorerAccount({
 }
 
 const explorerController = {
-  async moveTo(
-    account: Account,
-    explorerId: number,
-    pos: Position,
-    target: Position
-  ) {
+  async moveTo({
+    account,
+    explorerId,
+    stamina,
+    pos,
+    target,
+  }: {
+    account: Account;
+    explorerId: number;
+    stamina: number;
+    pos: Position;
+    target: Position;
+  }) {
     const distance = getHexDistance(pos, target);
-    console.log({ distance });
+
+    if (distance === 0)
+      return { success: true, message: "Already in the tile" };
+
+    console.log({ stamina, distance });
+
+    const minStaminaCost =
+      WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost * distance;
+
+    if (stamina < minStaminaCost) {
+      throw new Error(
+        "not enough stamina for that distance, mininum cost: " +
+          minStaminaCost +
+          "\nUse shorter distances to move"
+      );
+    }
 
     if (distance === 1) {
       const dir = findDirectionToNeighbor(pos.y, pos, target);
-      if (dir) {
+      if (dir !== null) {
         try {
           await eternum.controller.move(account, explorerId, [dir]);
           return { success: true };
@@ -85,7 +109,6 @@ const explorerController = {
           return { success: false, error };
         }
       }
-      console.log("no dir on distance 1");
     }
 
     const tiles = await eternum.getTilesByRadius({
@@ -139,26 +162,31 @@ It's the primary source for understanding Agent's current status, capabilities, 
   },
 
   async create({ args }, agent) {
-    const { coord, stamina, troops } = await eternum.getExplorer(args.playerId);
+    const { location, stamina, category, tier, troops } =
+      await eternum.getExplorer(args.playerId);
     const [{ balances, storage }] = await eternum.getResources(args.playerId);
 
     return {
       id: args.playerId,
-      current_location: coord,
+      current_location: location,
       stats: {
         stamina,
         storage_capacity: storage,
       },
+      category,
+      tier,
       troops,
       resources: balances,
     };
   },
 
   async loader({ args, memory }) {
-    const { coord, stamina, troops } = await eternum.getExplorer(args.playerId);
+    const { location, stamina, troops } = await eternum.getExplorer(
+      args.playerId
+    );
     const [{ balances, storage }] = await eternum.getResources(args.playerId);
 
-    memory.current_location = coord;
+    memory.current_location = location;
     memory.troops = troops;
     memory.stats.stamina = stamina;
     memory.stats.storage_capacity = storage;
@@ -167,18 +195,28 @@ It's the primary source for understanding Agent's current status, capabilities, 
 }).setActions([
   action({
     name: "player.moveTo",
+    instructions: `\
+Travel costs ${WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost} per hex.
+`,
     queueKey: "eternum.player",
     schema: {
       x: z.number(),
       y: z.number(),
     },
     async handler(target, { memory, options }) {
-      return explorerController.moveTo(
-        options.account,
-        memory.id,
-        memory.current_location,
-        target
-      );
+      const res = await explorerController.moveTo({
+        account: options.account,
+        explorerId: memory.id,
+        pos: memory.current_location,
+        target,
+        stamina: memory.stats.stamina.current,
+      });
+
+      if (res.success) {
+        memory.current_location = target;
+      }
+
+      return res;
     },
   }),
   action({
@@ -202,7 +240,7 @@ It's the primary source for understanding Agent's current status, capabilities, 
         { x: tile.col, y: tile.row }
       );
 
-      if (!direction) {
+      if (direction === null) {
         throw new Error("not adjacent to entity");
       }
 
@@ -213,6 +251,10 @@ It's the primary source for understanding Agent's current status, capabilities, 
         0, // defenderDamage (0 for initial calculation)
         0 // capacityConfigArmy (handled in contract)
       );
+
+      console.log({
+        stealing: stealableResources,
+      });
 
       try {
         await eternum.controller.raidStructure(
@@ -225,12 +267,13 @@ It's the primary source for understanding Agent's current status, capabilities, 
         return { success: true };
       } catch (error) {
         console.log({ error });
-        return { success: false };
+        return { success: false, error };
       }
     },
   }),
   action({
     name: "player.attackStructure",
+    queueKey: "eternum.player",
     schema: {
       entity_id: z.number(),
     },
@@ -267,11 +310,11 @@ It's the primary source for understanding Agent's current status, capabilities, 
         { x: tile.col, y: tile.row }
       );
 
-      if (!direction) {
+      console.log({ direction });
+
+      if (direction === null) {
         throw new Error("not adjacent to entity");
       }
-
-      console.log({ direction });
 
       try {
         await eternum.controller.attackStructure(
@@ -284,12 +327,13 @@ It's the primary source for understanding Agent's current status, capabilities, 
         return { success: true };
       } catch (error) {
         console.log({ error });
-        return { success: false };
+        return { success: false, error };
       }
     },
   }),
   action({
     name: "player.attackExplorer",
+    queueKey: "eternum.player",
     schema: {
       explorer_id: z.number(),
     },
@@ -310,11 +354,11 @@ It's the primary source for understanding Agent's current status, capabilities, 
         { x: tile.col, y: tile.row }
       );
 
-      if (!direction) {
+      console.log({ direction });
+
+      if (direction === null) {
         throw new Error("not adjacent to entity");
       }
-
-      console.log({ direction });
 
       const resources = await eternum.getResources(explorer_id);
 
@@ -338,7 +382,7 @@ It's the primary source for understanding Agent's current status, capabilities, 
         return { success: true };
       } catch (error) {
         console.log({ error });
-        return { success: false };
+        return { success: false, error };
       }
     },
   }),

@@ -63,7 +63,15 @@ These intentions represent potential goals or actions the agent is considering, 
           "Any prerequisites, checks, or reasoning before this intention can be acted upon (e.g., 'Proceed if no hostiles nearby', 'Waiting for stamina > 50')."
         ),
       status: z
-        .enum(["PROPOSED", "CONFIRMED"])
+        .enum([
+          "PROPOSED",
+          "CONFIRMED",
+          "ACTIVE",
+          "COMPLETED",
+          "CANCELLED",
+          "FAILED",
+          "PAUSED",
+        ])
         .default("PROPOSED")
         .describe("The initial status of the intention upon creation."),
     },

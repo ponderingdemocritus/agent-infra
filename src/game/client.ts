@@ -18,6 +18,7 @@ import {
   troop_movement_systems,
   troop_raid_systems,
 } from "./extract";
+import { TICKS } from "./types";
 
 const torii_url = "https://api.cartridge.gg/x/eternum-sepolia-2/torii/graphql";
 
@@ -121,16 +122,22 @@ function formatExplorer(explorer: Explorer) {
   const stamina = calculateStamina(
     explorer.troops.stamina,
     explorer.troops.category,
-    getCurrentTick()
+    explorer.troops.tier,
+    getCurrentTick() / TICKS.Armies
   );
 
   const { category, tier, count } = explorer.troops;
 
   return {
     id: explorer.explorer_id,
-    coord: explorer.coord,
-    stamina,
-    troops: { category, tier, count: parseInt(count, 16) / 1000000000 },
+    location: explorer.coord,
+    stamina: {
+      current: stamina.current,
+      max: stamina.max,
+    },
+    category,
+    tier,
+    troops: parseInt(count, 16) / 1_000_000_000,
   };
 }
 

@@ -1,15 +1,16 @@
 import { context } from "@daydreamsai/core";
 import personaInstructions from "./instructions/persona.md";
-
 import { z } from "zod";
-import { generatePersona } from "./utils/generate_persona";
+import { type Persona } from "./utils/generate_persona";
 
 export const persona_context = context({
   type: "persona",
-  schema: { id: z.string() },
-  key: ({ id }) => id,
+  schema: { playerId: z.number() },
+  key: ({ playerId }) => playerId.toString(),
   instructions: personaInstructions,
-  async create(params, agent) {
-    return await generatePersona(parseInt(params.id));
+  async create({ args }, { memory: { store } }) {
+    const persona = await store.get<Persona>("persona");
+    return persona;
   },
+  async save() {},
 });

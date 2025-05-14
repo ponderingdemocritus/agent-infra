@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { extension, input, output, render } from "@daydreamsai/core";
 import { formatMsg } from "@daydreamsai/core";
-import ChatClient from "./chat-client";
+import ChatClient from "../chat-client";
 import { context } from "@daydreamsai/core";
 import { service } from "@daydreamsai/core";
 import { LogLevel } from "@daydreamsai/core";

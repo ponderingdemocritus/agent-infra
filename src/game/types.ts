@@ -5,7 +5,7 @@ interface StaminaValue {
 
 // Tick configuration
 const TICKS = {
-  Armies: 15, // Armies tick in seconds (example value)
+  Armies: 120, // Armies tick in seconds (example value)
   Default: 1,
 };
 
