@@ -104,7 +104,7 @@ async function initializeAgent({ explorerId }: { explorerId: number }) {
 }
 
 // Start the agent
-const agent = await initializeAgent({ explorerId: 500 });
+const agent = await initializeAgent({ explorerId: 1071 });
 
 const cli = createInterface({
   input: process.stdin,
