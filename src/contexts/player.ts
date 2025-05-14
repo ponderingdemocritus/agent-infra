@@ -8,7 +8,7 @@ import {
 } from "../game/utils";
 import { eternum } from "../game/client";
 import { z } from "zod";
-import { createAccount } from "../account";
+import { createAccount, createNewAccount } from "../account";
 import {
   findDirectionToNeighbor,
   findShortestPath,
@@ -46,15 +46,6 @@ type Troops = {
     amount: string;
     updated_tick: string;
   };
-};
-
-const keys: Record<number, { publicKey: string; privateKey: string }> = {
-  500: {
-    publicKey:
-      "0xea8300739b22cef9eab0515cb1453789a78657e412fbc3d1526a2dd946d7ea",
-    privateKey:
-      "0x18a78a816c5e9bef489ee27700b5064b90e67c79a9c5f564a5d19f8b7a10315",
-  },
 };
 
 const explorerController = {
@@ -123,13 +114,33 @@ This context holds all vital information directly pertaining to agent's player i
 It's the primary source for understanding Agent's current status, capabilities, and resources`,
   instructions: "\n" + playerInstructions,
 
-  setup(args, settings, agent) {
-    const { publicKey, privateKey } = keys[args.playerId];
+  async setup(args, settings, agent) {
+    // FOR DEV
+    const keys = {
+      publicKey:
+        "0x254300e8d78f9483ade1c69d57e95e55ec93c10a5d0f7c73ca0819b8be5cef1",
+      privateKey:
+        "0x3ef88a2dd8ed5967be2f900fe43627434d5ffb8420f2f904442c92bd6d88b49",
+    };
+
+    if (!keys) {
+      throw new Error(
+        `Key pair not found for playerId ${args.playerId}. Please add it to the keys map.`
+      );
+    }
+
+    const { publicKey, privateKey } = keys;
 
     agent.taskRunner.setQueue("eternum.player", 1);
 
+    if (process.env.RUNTIME == "DEV") {
+      return {
+        account: createAccount(publicKey, privateKey),
+      };
+    }
+
     return {
-      account: createAccount(publicKey, privateKey),
+      account: await createNewAccount({ explorer_id: args.playerId }),
     };
   },
 

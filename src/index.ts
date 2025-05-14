@@ -5,6 +5,7 @@ import {
   createMemory,
   createMemoryStore,
   createVectorStore,
+  input,
   Logger,
   LogLevel,
   validateEnv,
@@ -33,6 +34,8 @@ validateEnv(
   })
 );
 
+const INTERVAL_MINUTES = 0.2;
+
 const eternumSession = context({
   type: "eternum-session",
   schema: { explorerId: z.number(), sessionId: z.string() },
@@ -42,6 +45,7 @@ const eternumSession = context({
       schema: z.string(),
     },
   },
+
   outputs: {
     message: {
       schema: z.string(),
@@ -49,9 +53,9 @@ const eternumSession = context({
     },
   },
 
-  async onStep() {
-    await cli.question("Press enter to continue...");
-  },
+  // async onStep() {
+  //   await cli.question("Press enter to continue...");
+  // },
 }).use(({ args }) => [
   { context: game_rules_and_directives, args: {} },
   { context: game_loop, args: {} },
@@ -81,9 +85,48 @@ async function initializeAgent({ explorerId }: { explorerId: number }) {
 
   try {
     const agent = createDreams({
-      logger: new Logger({ level: LogLevel.INFO }),
+      logger: new Logger({ level: LogLevel.DEBUG }),
       model: openrouter("google/gemini-2.5-flash-preview"),
       memory: createMemory(store, createVectorStore()),
+      inputs: {
+        "recurring:trigger": input({
+          schema: z.object({
+            timestamp: z.number(),
+            message: z.string(),
+          }),
+          format: ({ timestamp }) =>
+            `Recurring task triggered at ${new Date(timestamp).toISOString()}`,
+
+          async subscribe(send) {
+            const intervalMs = INTERVAL_MINUTES * 60 * 1000;
+
+            console.info(
+              "Setting up recurring task",
+              JSON.stringify({
+                interval_minutes: INTERVAL_MINUTES,
+              })
+            );
+
+            const intervalId = setInterval(async () => {
+              send(
+                eternumSession,
+                {
+                  explorerId: parseInt(process.env.EVENT_DATA_1!),
+                  sessionId: "session-1",
+                },
+                {
+                  timestamp: Date.now(),
+                  message: "Try and move around and attack entities! 💀",
+                }
+              );
+            }, intervalMs);
+
+            return () => {
+              clearInterval(intervalId);
+            };
+          },
+        }),
+      },
     }).start();
 
     console.log(`
@@ -104,7 +147,9 @@ async function initializeAgent({ explorerId }: { explorerId: number }) {
 }
 
 // Start the agent
-const agent = await initializeAgent({ explorerId: 1071 });
+const agent = await initializeAgent({
+  explorerId: parseInt(process.env.EVENT_DATA_1!),
+});
 
 const cli = createInterface({
   input: process.stdin,
@@ -114,7 +159,10 @@ const cli = createInterface({
 //SERVER
 await agent.getContext({
   context: eternumSession,
-  args: { explorerId: 500, sessionId: "session-1" },
+  args: {
+    explorerId: parseInt(process.env.EVENT_DATA_1!),
+    sessionId: "session-1",
+  },
 });
 
 const server = createAgentServer({
@@ -122,4 +170,4 @@ const server = createAgentServer({
   port: 7777,
 });
 
-console.log({ server });
+// console.log({ server });

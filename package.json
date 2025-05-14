@@ -17,6 +17,7 @@
     "@daydreamsai/discord": "^0.3.6",
     "@openrouter/ai-sdk-provider": "^0.4.5",
     "@tavily/core": "^0.3.1",
+    "agent-twitter-client": "^0.0.18",
     "cohere-ai": "^7.16.0",
     "discord.js": "^14.18.0",
     "hyperliquid": "^1.6.2",
