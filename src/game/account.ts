@@ -7,7 +7,7 @@ import {
   stark,
   type Call,
 } from "starknet";
-import { ownership_systems } from "./game/extract";
+import { ownership_systems } from "./extract";
 import { CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 
 // Configuration
@@ -99,11 +99,11 @@ export const createNewAccount = async ({
   const privateKey = stark.randomAddress();
   console.log("New ArgentX account:\nprivateKey=", privateKey);
 
-  const starkKeyPub = ec.starkCurve.getStarkKey(privateKey);
-  console.log("publicKey=", starkKeyPub);
+  const publicKey = ec.starkCurve.getStarkKey(privateKey);
+  console.log("publicKey=", publicKey);
 
   // Calculate future address of the ArgentX account
-  const axSigner = new CairoCustomEnum({ Starknet: { pubkey: starkKeyPub } });
+  const axSigner = new CairoCustomEnum({ Starknet: { pubkey: publicKey } });
   const axGuardian = new CairoOption<unknown>(CairoOptionVariant.None);
   const AXConstructorCallData = CallData.compile({
     owner: axSigner,
@@ -111,11 +111,12 @@ export const createNewAccount = async ({
   });
 
   const contractAddress = hash.calculateContractAddressFromHash(
-    starkKeyPub,
+    publicKey,
     argentXaccountClassHash,
     AXConstructorCallData,
     0
   );
+
   console.log("Precalculated account address=", contractAddress);
 
   const account = new Account(rpc, contractAddress, privateKey);
@@ -131,7 +132,7 @@ export const createNewAccount = async ({
     const { transaction_hash, contract_address } = await account.deployAccount({
       classHash: argentXaccountClassHash,
       constructorCalldata: AXConstructorCallData,
-      addressSalt: starkKeyPub,
+      addressSalt: publicKey,
     });
 
     await rpc.waitForTransaction(transaction_hash);
@@ -143,7 +144,7 @@ export const createNewAccount = async ({
     await transferAccount(explorer_id, contract_address);
     console.log("✅ Account transferred to ", contract_address, explorer_id);
 
-    return account;
+    return { account, publicKey, privateKey };
   } catch (error) {
     console.error("Error deploying account:", error);
     throw error;

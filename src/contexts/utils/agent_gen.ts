@@ -1,7 +1,9 @@
-import elisa from "./data/personas/agent_elisa_ember_crown_apostle.json";
-import yp from "./data/personas/agent_yp.json";
-import istarai from "./data/personas/agent_gandalf_the_grey_istari.json";
-import apix from "./data/personas/agent_apix.json";
+import elisa from "../data/personas/agent_elisa_ember_crown_apostle.json";
+import yp from "../data/personas/agent_yp.json";
+import istarai from "../data/personas/agent_gandalf_the_grey_istari.json";
+import apix from "../data/personas/agent_apix.json";
+import { generatePersona, type Persona } from "./generate_persona";
+import { fetchExplorerTroops } from "../../game/sql";
 
 export enum TroopTier {
   T1 = "T1",
@@ -14,8 +16,6 @@ export enum TroopType {
   Paladin = "Paladin",
   Crossbowman = "Crossbowman",
 }
-import { generatePersona, type Persona } from "./generate_persona";
-import { fetchExplorerTroops } from "../sql";
 
 // Define agent names
 const AGENT_YP_NAME = "Agent YP";

@@ -1,4 +1,4 @@
-import type { TroopTier, TroopType } from "./contexts/agent_gen";
+import type { TroopTier, TroopType } from "../contexts/utils/agent_gen";
 
 const API_BASE_URL = `${process.env.TORII || ""}/sql`;
 

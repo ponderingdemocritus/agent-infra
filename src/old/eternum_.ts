@@ -26,7 +26,11 @@ import {
   RESOURCES_WEIGHTS_NANOGRAM,
   calculateHexDistance,
 } from "../game/utils";
-import { createAccount, createNewAccount, transferAccount } from "../account";
+import {
+  createAccount,
+  createNewAccount,
+  transferAccount,
+} from "../game/account";
 
 const INTERVAL_MINUTES = 0.2;
 const MAP_RADIUS = 25;

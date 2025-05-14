@@ -2,7 +2,7 @@ import { context } from "@daydreamsai/core";
 import personaInstructions from "./instructions/persona.md";
 
 import { z } from "zod";
-import { generatePersona } from "./generate_persona";
+import { generatePersona } from "./utils/generate_persona";
 
 export const persona_context = context({
   type: "persona",
