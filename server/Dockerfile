@@ -16,7 +16,7 @@ COPY . .
 # Build the Go app - Creates a static binary
 # Use CGO_ENABLED=0 for a static binary suitable for minimal base images like alpine
 # GOOS=linux is important as GKE nodes run Linux
-RUN CGO_ENABLED=0 GOOS=linux go build -v -o chairman-server .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -o chairman-server .
 
 # Stage 2: Create the final, minimal image
 FROM alpine:latest

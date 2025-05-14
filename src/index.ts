@@ -26,6 +26,7 @@ import { known_entities_context } from "./contexts/know_entities";
 import { createStorage } from "unstorage";
 import fsDriver from "unstorage/drivers/fs";
 import path from "path";
+import { checkForDeath } from "./death";
 
 validateEnv(
   z.object({
@@ -138,6 +139,10 @@ async function initializeAgent({ explorerId }: { explorerId: number }) {
                                                            
 `);
     console.log("DAYDREAMS ETERNUM AGENT BOOTING UP");
+
+    checkForDeath().catch((error) => {
+      console.error("Unhandled error in agent:", error);
+    });
 
     return agent;
   } catch (error) {

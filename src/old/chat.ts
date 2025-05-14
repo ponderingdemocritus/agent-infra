@@ -13,7 +13,7 @@ export const seed =
   99999;
 
 const character = generateCharacter({
-  seed: seed,
+  seed,
 });
 
 const chatService = service({

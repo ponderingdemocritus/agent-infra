@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	// Add Kubernetes imports
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -114,9 +116,9 @@ var (
 	envFile          = flag.String("env-file", ".env", "Path to the .env file")
 	batchSize        = flag.Int("batch-size", 30, "Number of blocks to process in each batch")
 	kubeconfigPath   = flag.String("kubeconfig", "", "Path to kubeconfig file (optional, defaults to ~/.kube/config or in-cluster)")
-	namespace        = flag.String("namespace", "default", "Kubernetes namespace to launch jobs in")
-	agentImage       = flag.String("agent-image", "chairman-app:latest", "Docker image for the agent container")
-	agentServiceAccount = flag.String("agent-service-account", "", "ServiceAccount name for agent pods (optional)")
+	namespace        = flag.String("namespace", "my-agents", "Kubernetes namespace to launch jobs in")
+	agentImage       = flag.String("agent-image", "dreams-agents-client:latest", "Docker image for the agent container")
+	agentServiceAccount = flag.String("chairman-server-sa", "", "ServiceAccount name for agent pods (optional)")
 	
 	// Default Starknet configuration
 	defaultStarknetConfig = StarknetConfig{
@@ -146,6 +148,9 @@ func init() {
 	// Parse command line flags
 	flag.Parse()
 	
+	log = logrus.New()
+	log.SetOutput(os.Stdout) // Direct logs to standard output
+
 	// Load .env file
 	if err := godotenv.Load(*envFile); err != nil {
 		log.Warnf("Error loading .env file from %s: %v", *envFile, err)
@@ -649,11 +654,15 @@ func handleEventEmitted(event EventPayload) {
 	// Let's use the base name directly for now. Kubernetes will add a unique suffix to the Pod name.
 	jobName := jobNameBase
 
+	// Sanitize and truncate label values
+	sanitizedEventID := sanitizeAndTruncateLabelValue(event.EventID)
+	sanitizedSelector := sanitizeAndTruncateLabelValue(targetSelector)
+
 	// Prepare environment variables for the agent Pod
 	envVars := []v1.EnvVar{
-		{Name: "EVENT_ID", Value: event.EventID},
+		{Name: "EVENT_ID", Value: sanitizedEventID},
 		{Name: "EVENT_TYPE", Value: event.EventType},
-		{Name: "EVENT_SELECTOR", Value: targetSelector},
+		{Name: "EVENT_SELECTOR", Value: sanitizedSelector},
 		// Add keys
 		{Name: "EVENT_KEYS_JSON", Value: toJsonString(keys)}, // Pass keys as JSON string
 		// Add data
@@ -728,8 +737,8 @@ func handleEventEmitted(event EventPayload) {
 			Namespace: *namespace,
 			Labels: map[string]string{ // Labels for finding/managing jobs later
 				"app":       "chairman-agent",
-				"event-id":  event.EventID, // Use valid label value format
-				"selector":  targetSelector, // Maybe sanitize this if needed
+				"event-id":  sanitizedEventID, // Use sanitized value
+				"selector":  sanitizedSelector, // Use sanitized value
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -739,7 +748,7 @@ func handleEventEmitted(event EventPayload) {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{ // Pods also get labels
 						"app":      "chairman-agent",
-						"event-id": event.EventID,
+						"event-id": sanitizedEventID, // Use sanitized value
 					},
 				},
 				Spec: v1.PodSpec{
@@ -793,6 +802,55 @@ func toJsonString(v interface{}) string {
 	return string(b)
 }
 
+// Regular expression for valid Kubernetes label values (simplified)
+// Allows alphanumerics, '-', '_', '.' in the middle.
+var labelValueRegex = regexp.MustCompile(`^[a-zA-Z0-9]([-a-zA-Z0-9_.]*[a-zA-Z0-9])?$`) // Matches start/end alphanumeric
+var invalidLabelCharsRegex = regexp.MustCompile(`[^a-zA-Z0-9-_.]`) // Finds characters to replace
+
+// sanitizeAndTruncateLabelValue ensures a string is a valid Kubernetes label value.
+func sanitizeAndTruncateLabelValue(value string) string {
+	// Replace 0x prefix if present, common in selectors/hashes
+	value = strings.TrimPrefix(value, "0x")
+	
+	// Convert to lower case
+	value = strings.ToLower(value)
+
+	// Replace invalid characters with hyphen
+	value = invalidLabelCharsRegex.ReplaceAllString(value, "-")
+
+	// Trim leading/trailing hyphens or dots
+	value = strings.Trim(value, "-.")
+
+	// Truncate to 63 characters if necessary
+	if len(value) > 63 {
+		value = value[:63]
+	}
+
+	// Ensure it still ends with alphanumeric after truncation
+	value = strings.TrimRight(value, "-.") 
+
+	// Handle empty string case after sanitization
+	if value == "" {
+		return "invalid-label" // Return a default valid label
+	}
+
+	// Ensure it starts with alphanumeric (less likely needed after above steps, but safe)
+	if !((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= '0' && value[0] <= '9')) {
+		value = "l" + value[1:] // Prepend 'l' if first char is invalid (e.g., was '-')
+		// Re-truncate if prepending made it too long
+		if len(value) > 63 {
+			value = value[:63]
+		}
+	}
+
+	// Final check (optional, regex can be slow)
+	// if !labelValueRegex.MatchString(value) {
+	// 	log.Warnf("Label sanitization resulted in potentially invalid value: %s", value)
+	// }
+
+	return value
+}
+
 // Helper function to get pointer to int32 (needed for some K8s spec fields)
 func PtrInt32(i int) *int32 {
 	i32 := int32(i)
@@ -843,7 +901,7 @@ func handleEvent(c *gin.Context) {
 			},
 		},
 		Spec: batchv1.JobSpec{
-			// TTLSecondsAfterFinished: PtrInt32(3600),
+			TTLSecondsAfterFinished: PtrInt32(0), // Auto-delete job immediately after completion
 			BackoffLimit: PtrInt32(1),
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1089,6 +1147,99 @@ func streamJobLogs(c *gin.Context) {
 	}
 }
 
+// --- New Handler for Agent Death Signal ---
+func handleAgentDeathSignal(c *gin.Context) {
+	eventID := c.Param("event_id")
+	if eventID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing event_id parameter"})
+		return
+	}
+
+	// IMPORTANT: Sanitize the received event ID exactly like when creating the job label
+	sanitizedEventID := sanitizeAndTruncateLabelValue(eventID)
+	log.Infof("Received death signal for event_id: %s (sanitized: %s)", eventID, sanitizedEventID)
+
+	// Find the Job(s) using the sanitized event-id label
+	listOptions := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("event-id=%s", sanitizedEventID),
+	}
+
+	jobList, err := kubernetesClientset.BatchV1().Jobs(*namespace).List(context.Background(), listOptions)
+	if err != nil {
+		// Handle potential errors during list operation
+		log.Errorf("Error listing jobs for event-id %s: %v", sanitizedEventID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":      fmt.Sprintf("Failed to list jobs for event ID %s", sanitizedEventID),
+			"event_id":   eventID,
+			"sanitized":  sanitizedEventID,
+		})
+		return
+	}
+
+	if len(jobList.Items) == 0 {
+		log.Warnf("No jobs found with event-id label: %s", sanitizedEventID)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":      fmt.Sprintf("No job found for event ID %s", sanitizedEventID),
+			"event_id":   eventID,
+			"sanitized":  sanitizedEventID,
+		})
+		return
+	}
+
+	// Delete the found Job(s)
+	var deletedJobs []string
+	var deletionErrors []string
+	deletePolicy := metav1.DeletePropagationBackground // Delete pods in background
+
+	for _, job := range jobList.Items {
+		jobName := job.Name
+		log.Infof("Attempting to delete Job %s (found via event-id %s)", jobName, sanitizedEventID)
+		err := kubernetesClientset.BatchV1().Jobs(*namespace).Delete(context.Background(), jobName, metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		})
+
+		if err != nil {
+			// Check if the error is 'Not Found' (maybe deleted by another process or TTL)
+			if apierrors.IsNotFound(err) {
+				log.Warnf("Job %s not found during deletion attempt (already deleted?)", jobName)
+				// Optionally count this as success or ignore
+			} else {
+				log.Errorf("Failed to delete Job %s: %v", jobName, err)
+				deletionErrors = append(deletionErrors, fmt.Sprintf("Failed to delete job %s: %v", jobName, err))
+			}
+		} else {
+			log.Infof("Job %s marked for deletion successfully.", jobName)
+			deletedJobs = append(deletedJobs, jobName)
+		}
+	}
+
+	if len(deletionErrors) > 0 {
+		// Return internal server error if any deletion failed (excluding not found)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message":      fmt.Sprintf("Attempted deletion for event ID %s. Some errors occurred.", sanitizedEventID),
+			"event_id":     eventID,
+			"sanitized":    sanitizedEventID,
+			"deleted_jobs": deletedJobs,
+			"errors":       deletionErrors,
+		})
+	} else if len(deletedJobs) == 0 {
+		// This case might happen if all jobs found were already deleted (only Not Found errors)
+		c.JSON(http.StatusOK, gin.H{
+			"message":      fmt.Sprintf("No active jobs found to delete for event ID %s (already deleted?).", sanitizedEventID),
+			"event_id":     eventID,
+			"sanitized":    sanitizedEventID,
+		})
+	} else {
+		// Success
+		c.JSON(http.StatusOK, gin.H{
+			"message":      fmt.Sprintf("Successfully triggered deletion for job(s) associated with event ID %s", sanitizedEventID),
+			"event_id":     eventID,
+			"sanitized":    sanitizedEventID,
+			"deleted_jobs": deletedJobs,
+		})
+	}
+}
+
 func main() {
 	r := gin.Default()
 
@@ -1096,6 +1247,9 @@ func main() {
 	r.GET("/jobs/:job_name/status", getJobStatus)
 	r.DELETE("/jobs/:job_name", deleteJob)
 	r.GET("/jobs/:job_name/logs", streamJobLogs)
+
+	// Add the new endpoint for agent death signals
+	r.DELETE("/signal-death/:event_id", handleAgentDeathSignal)
 
 	log.Info("Starting Dreams Kubernetes Agent Manager...")
 	log.Infof("Listening for contract: %s", defaultEventEmittedFilter.ContractAddress)

@@ -1912,7 +1912,32 @@ function generateCommunicationStyle(
   };
 }
 
+// Special predefined characters
+const specialCharacters: Character[] = [
+  // The user will need to define these 4 special characters
+  // Each has a 3% chance of appearing
+  // Character 1
+  {} as Character, // apix
+  // Character 2
+  {} as Character, // elisa
+  // Character 3
+  {} as Character, // jefferson
+  // Character 4
+  {} as Character, // jeff
+];
+
 export function generateCharacter({ seed }: { seed: number }): Character {
+  // Check if we should return a special character (12% chance total, 3% for each)
+  const specialCharacterRoll = ((seed * 9301 + 49297) % 233280) % 100;
+
+  // // If roll is less than 12, return one of the special characters
+  if (specialCharacterRoll < 12) {
+    // Determine which special character to return (0-3)
+    const specialCharacterIndex = Math.floor(specialCharacterRoll / 3);
+    return specialCharacters[specialCharacterIndex];
+  }
+
+  // Otherwise, generate a random character as before
   const traits = {
     aggression: generateTraitValue(seed),
     agreeability: generateTraitValue(seed),
