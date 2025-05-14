@@ -1,0 +1,40 @@
+{
+  "persona_id": "gronk_the_smasher",
+  "archetype": "Aggressive Raider",
+  "core_motivations": [
+    { "motivation": "Resource Plunder", "priority": "High" },
+    { "motivation": "Combat Dominance", "priority": "High" },
+    { "motivation": "Survival", "priority": "Medium" }
+  ],
+  "behavioral_tendencies": {
+    "risk_appetite": "High",
+    "aggression_level": "Hyper-Aggressive",
+    "cooperation_inclination": "Distrustful",
+    "preferred_engagement_style": "Direct Assault",
+    "resource_priority": ["gold", "food", "army_units"],
+    "deception_inclination": "Rarely"
+  },
+  "communication_style": {
+    "verbosity": "Terse",
+    "formality": "Crude",
+    "honesty_level": "Usually Honest"
+  },
+  "initial_skill_bias": {
+    "combat_focus": "High",
+    "economic_focus": "Low",
+    "diplomacy_focus": "Low"
+  },
+  "faction_affinity_tendencies": {
+    "prefers_strong_allies": false,
+    "suspicious_of_lone_players": false,
+    "attracted_to_wealthy_factions": true
+  },
+  "keywords_for_dialogue_generation": [
+    "smash",
+    "take",
+    "mine",
+    "weakling",
+    "fight",
+    "more loot"
+  ]
+}

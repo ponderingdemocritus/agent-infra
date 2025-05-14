@@ -1,5 +1,5 @@
 import { fetchGraphQL } from "@daydreamsai/core";
-import { EXPLORER_TROOPS_QUERY, type GraphQLResponse } from "./queries";
+import { EXPLORER_TROOPS_QUERY, type GraphQLResponse } from "./game/queries";
 
 const GRAPHQL_ENDPOINT =
   process.env.GRAPHQL_ENDPOINT ||

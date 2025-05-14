@@ -6,169 +6,229 @@ import {
   input,
   render,
 } from "@daydreamsai/core";
-
 import { context } from "@daydreamsai/core";
-
 import type { Call } from "starknet";
 import {
   troop_battle_systems,
   troop_movement_systems,
   troop_raid_systems,
-} from "./extract";
-import { createNewAccount } from "./account";
+} from "./game/extract";
 import {
   EXPLORER_TROOPS_QUERY,
   TROOPS_IN_RANGE_QUERY,
   TILES_QUERY,
   RESOURCES_QUERY,
   type GraphQLResponse,
-} from "./queries";
-import { BiomeType, ResourcesIds, TileOccupier } from "./types";
+} from "./game/queries";
+import { BiomeType, ResourcesIds, TileOccupier } from "./game/types";
 import {
   generateASCIIMap,
   calculateStamina,
-  fetchCurrentTick,
+  getCurrentTick,
   getNeighborCoord,
   findAdjacentEntities,
   findNearestEntity,
   processResourceData,
   RESOURCES_WEIGHTS_NANOGRAM,
-} from "./utils";
+  calculateHexDistance,
+} from "../game/utils";
+import { createAccount, createNewAccount, transferAccount } from "./account";
 
 const INTERVAL_MINUTES = 0.2;
 const MAP_RADIUS = 25;
 
+const explorer_id = 500;
+
 const torii_url =
   "https://api.cartridge.gg/x/eternum-sepolia-interim/torii/graphql";
 
-const explorer_id = parseInt(process.env.EVENT_DATA_1 || "195");
-
 console.info("Initializing eternum extension", JSON.stringify({ explorer_id }));
 
-// Initialize account
-const account = await createNewAccount();
+// const account = await createNewAccount({ explorer_id });
 
-const template = `
-    You are an expert gamer and a seasoned commander in the game world of Eternum. You excel at raiding structures and defeating rival explorers. You should take an action if you can, never just be idle.
+// // // Initialize account
+const account = createAccount(
+  "0xea8300739b22cef9eab0515cb1453789a78657e412fbc3d1526a2dd946d7ea",
+  "0x18a78a816c5e9bef489ee27700b5064b90e67c79a9c5f564a5d19f8b7a10315"
+);
 
-    ═══════════════════════════════════════════════════════
-    PRIMARY OBJECTIVE
-    ═══════════════════════════════════════════════════════
-    • Attack the closest Realm which is indicated by the 1 on the map.
-    • Accumulate resources by raiding structures and defeating rival explorers.
-    • Stay alive.
-    • Stay focused on a target until it is dead or you run out of stamina.
+// account.
+// await transferAccount(explorer_id, account.address);
 
-    SECONDARY OBJECTIVES
-    • Continuously explore safe tiles to expand your tactical options.
-    • Prioritise high-value, low-risk targets (isolated structures or weakened explorers).
+// throw new Error("here");
 
-    ═══════════════════════════════════════════════════════
-    CURRENT STATUS
-    ────────────────────────────────────────────────────────
-    • Position        : (x = {{x}}, y = {{y}})
-    • Troop Summary   : {{troops}}
-    • Nearby Entities : {{surrounding}}
+const template = `\
+<status>
+Position        : (x = {{x}}, y = {{y}})
+Troop Summary   : {{troops}}
+Nearby Entities : {{surrounding}}
+</status>
 
-    MAP INTEL
-    ────────────────────────────────────────────────────────
-    {{mapInfo}}
+<map>
+{{mapInfo}}
+</map>
 
-    ADJACENT ENTITIES ‑ Ready for Immediate Attack
-    ────────────────────────────────────────────────────────
-    {{adjacentEntities}}
+ADJACENT ENTITIES - Ready for Immediate Attack
+<adjacent_entities>
+{{adjacentEntities}}
+</adjacent_entities>
 
-    PATHFINDING RECOMMENDATIONS
-    ────────────────────────────────────────────────────────
-    {{pathfindingInfo}}
+<pathfinding_recommendations>
+{{pathfindingInfo}}
+</pathfinding_recommendations>
 
-    ASCII MINI-MAP ( O = you )
-    ────────────────────────────────────────────────────────
-    {{asciiMap}}
+ASCII MINI-MAP ( O = you )
+<mini_map>
+{{asciiMap}}
+</mini_map>
 
-    ═══════════════════════════════════════════════════════
-    ACTION PROTOCOL
-    ═══════════════════════════════════════════════════════
-    1. SENSE  – Review the map and adjacent entities.
-    2. PLAN   – Decide between ATTACK, RAID (eternum.raidStructure) or MOVE (eternum.moveExplorer) based on stamina and objectives.
-                • If an adjacent target is weak ⇒ ATTACK.
-                • If an adjacent target is a structure ⇒ RAID.
-                • Else move toward the closest lucrative target using {{recommendedPath}}.
-    3. ACT    – Issue exactly ONE action.
+<available_directions>
+{{availableDirections}}
+</available_directions>
 
-    ── MOVEMENT ───────────────────────────────────────────
-    • Use "eternum.moveExplorer" with an ARRAY of directions to chain moves.
-      Example:  [0, 1]  ⇒ East, then North-East. You should always move in the direction of the nearest entity, and move more than 1 tile at once. You can only move in the {{availableDirections}}
-    • Directions (axial):
-        0 → East       1 → Southeast
-        2 → Southwest  3 → West
-        4 → Northwest  5 → Northeast
-    • Restrictions:
-        – Cannot move through unexplored or occupied tiles. Which are represented by the [.]
-        – Ensure sufficient stamina for the full path.
+<recommended_path>
+{{recommendedPath}}
+</recommended_path>
+`;
 
-    ── COMBAT ─────────────────────────────────────────────
-    • Use "eternum.attackExplorer" or "eternum.attackStructure" or "eternum.raidStructure".
-    • Target must occupy one of the six adjacent hexes (see list above).
-    • Supply the direction that matches the target's position.
+type Tile = {
+  biome: number;
+  col: number;
+  row: number;
+  occupier_id?: number;
+  occupier_type?: number;
+};
 
-    `;
+type TroopStamina = {
+  percentFull: number;
+  canTravel: boolean;
+  canExplore: boolean;
+  amount: number;
+  updated_tick: number;
+  maxStamina: number;
+  staminaCostForTravel: number;
+  staminaCostForExplore: number;
+};
+
+type Troop = {
+  tier: number;
+  category: string;
+  count: number;
+  stamina: TroopStamina;
+};
+
+type EternumMemory = {
+  x: number;
+  y: number;
+  troops: Troop | null;
+  surrounding: {
+    explorer_id: number;
+    coord: {
+      x: number;
+      y: number;
+    };
+    distance: number;
+    troops: Troop;
+  }[];
+  mapState: {
+    tiles: Tile[];
+    exploredTiles: Record<string, Tile>;
+    occupiedTiles: Record<string, number>;
+    adjacentEntities: Array<{
+      direction: number;
+      col: number;
+      row: number;
+      occupier_id: number;
+      distance: number;
+    }>;
+    nearestEntities: Array<{
+      col: number;
+      row: number;
+      occupier_id: number;
+      occupier_type: number;
+      distance: number;
+      path?: Array<{
+        direction: number;
+        col: number;
+        row: number;
+      }>;
+    }>;
+    availableDirections: Array<number>;
+    recommendedPath: Array<number> | undefined;
+    lastUpdated: number;
+  };
+};
+
+type AdjecentEntities = EternumMemory["mapState"]["adjacentEntities"];
+type NearestEntities = EternumMemory["mapState"]["nearestEntities"];
 
 const eternumContext = context({
   type: "eternum",
-
   key: ({ channelId }) => channelId,
-  maxWorkingMemorySize: 15,
+  instructions: `\
+You are an expert gamer and a seasoned commander in the game world of Eternum. 
+You excel at raiding structures and defeating rival explorers. 
+You should take an action if you can, never just be idle.
+
+═══════════════════════════════════════════════════════
+PRIMARY OBJECTIVE
+═══════════════════════════════════════════════════════
+• Stay alive.
+• Stay focused on a target until it is dead or you run out of stamina.
+• Accumulate resources by raiding structures and defeating rival explorers.
+
+SECONDARY OBJECTIVES
+• Continuously explore safe tiles to expand your tactical options.
+• Prioritise high-value, low-risk targets (isolated structures or weakened explorers). 
+
+═══════════════════════════════════════════════════════
+ACTION PROTOCOL
+═══════════════════════════════════════════════════════
+1. SENSE  - Review the map and adjacent entities.
+2. PLAN   - Decide between ATTACK (eternum.attackStructure), RAID (eternum.raidStructure) or MOVE (eternum.moveExplorer) based on stamina and objectives.
+            • If an adjacent target is weak ⇒ ATTACK.
+            • If an adjacent target is a structure ⇒ RAID.
+            • Else move toward the closest lucrative target
+3. ACT    - Issue exactly ONE action.
+
+── MOVEMENT ───────────────────────────────────────────
+You should always move in the direction of the nearest entity, and move more than 1 tile at once when possible, using the mini-map data to plan multi-directional paths. 
+You can always trust the mini-map data to indicate explored tiles. 
+You can only move in the <available_directions>
+
+• Use "eternum.moveExplorer" with an ARRAY of directions to chain moves.
+  Example:  [0, 5]  ⇒ East, then Northeast. 
+
+• Directions (axial):
+    0 → East       1 → Southeast
+    2 → Southwest  3 → West
+    4 → Northwest  5 → Northeast
+
+• Restrictions:
+  - Cannot move through unexplored (Which are represented by the [.]) or occupied tiles.
+  - Ensure sufficient stamina for the full path.
+
+── COMBAT ─────────────────────────────────────────────
+• Use "eternum.attackExplorer" or "eternum.attackStructure" or "eternum.raidStructure".
+• Target must occupy one of the six adjacent hexes (see list above).
+• Supply the direction that matches the target's position.
+
+`,
   schema: z.object({ channelId: z.string() }),
-
-  async setup(args, {}, { context }) {
-    return { channelId: args.channelId };
-  },
-
-  create(state) {
+  create(): EternumMemory {
     return {
       x: 0,
       y: 0,
-      troops: {},
-      surrounding: {},
+      troops: null,
+      surrounding: [],
       mapState: {
-        tiles: [] as Array<{
-          biome: number;
-          col: number;
-          row: number;
-          occupier_id?: number;
-        }>,
-        exploredTiles: {} as Record<
-          string,
-          {
-            biome: number;
-            col: number;
-            row: number;
-            occupier_id?: number;
-          }
-        >,
-        occupiedTiles: {} as Record<string, number>,
-        adjacentEntities: [] as Array<{
-          direction: number;
-          col: number;
-          row: number;
-          occupier_id: number;
-          distance: number;
-        }>,
-        nearestEntities: [] as Array<{
-          col: number;
-          row: number;
-          occupier_id: number;
-          occupier_type: number;
-          distance: number;
-          path?: Array<{
-            direction: number;
-            col: number;
-            row: number;
-          }>;
-        }>,
-        availableDirections: [] as Array<number>,
-        recommendedPath: undefined as Array<number> | undefined,
+        tiles: [],
+        exploredTiles: {},
+        occupiedTiles: {},
+        adjacentEntities: [],
+        nearestEntities: [],
+        availableDirections: [],
+        recommendedPath: undefined,
         lastUpdated: 0,
       },
     };
@@ -178,7 +238,7 @@ const eternumContext = context({
     // Generate a simple text representation of the map
     let mapInfo = "";
     let asciiMap = "No map data available yet.";
-    let adjacentEntities = "No entities detected nearby.";
+    let adjacentEntitiesInfo = "No entities detected nearby.";
     let pathfindingInfo = "No pathfinding data available yet.";
 
     if (
@@ -186,22 +246,25 @@ const eternumContext = context({
       memory.mapState.tiles &&
       memory.mapState.tiles.length > 0
     ) {
-      mapInfo = `
-# Map Information
-- You have explored ${
-        Object.keys(memory.mapState.exploredTiles).length
-      } tiles around you.
-- There are ${
-        Object.keys(memory.mapState.occupiedTiles).length
-      } occupied tiles in your vicinity.
-- Biomes in your surroundings: ${Array.from(
+      const biomes = Array.from(
         new Set(
           memory.mapState.tiles.map(
             (t: { biome: number }) => BiomeType[t.biome]
           )
         )
-      ).join(", ")}
-      `;
+      ).join(", ");
+
+      const exploredTiles = Object.keys(memory.mapState.exploredTiles).length;
+      const occupiedTiles = Object.keys(memory.mapState.occupiedTiles).length;
+      const adjacentEntities = Object.keys(
+        memory.mapState.adjacentEntities
+      ).length;
+
+      mapInfo = `\
+# Map Information
+- You have explored ${exploredTiles} tiles around you.
+- There are ${occupiedTiles} occupied tiles in your vicinity.
+- Biomes in your surroundings: ${biomes}`;
 
       // Generate ASCII map
       asciiMap = generateASCIIMap(
@@ -216,21 +279,11 @@ const eternumContext = context({
         memory.mapState.adjacentEntities &&
         memory.mapState.adjacentEntities.length > 0
       ) {
-        adjacentEntities = `
-You have ${
-          memory.mapState.adjacentEntities.length
-        } entities adjacent to you that can be attacked:
+        adjacentEntitiesInfo = `
+You have ${adjacentEntities} entities adjacent to you that can be attacked:
 ${memory.mapState.adjacentEntities
   .map(
-    (
-      entity: {
-        occupier_id: number;
-        col: number;
-        row: number;
-        direction: number;
-      },
-      index: number
-    ) =>
+    (entity, index) =>
       `${index + 1}. Entity ID: ${entity.occupier_id} at (${entity.col}, ${
         entity.row
       }) - Direction: ${entity.direction}`
@@ -240,7 +293,7 @@ ${memory.mapState.adjacentEntities
 You can attack these entities with the attackOtherExplorers or attackStructure actions.
         `;
       } else {
-        adjacentEntities =
+        adjacentEntitiesInfo =
           "No entities are adjacent to you for immediate attack.";
       }
 
@@ -253,15 +306,7 @@ You can attack these entities with the attackOtherExplorers or attackStructure a
 Nearest entities to target:
 ${memory.mapState.nearestEntities
   .map(
-    (
-      entity: {
-        occupier_id: number;
-        col: number;
-        row: number;
-        distance: number;
-      },
-      index: number
-    ) =>
+    (entity, index) =>
       `${index + 1}. Entity ID: ${entity.occupier_id} at (${entity.col}, ${
         entity.row
       }) - Distance: ${entity.distance}`
@@ -285,11 +330,11 @@ Use the moveExplorer action with the recommended directions to approach the near
       render(template, {
         x: memory.x,
         y: memory.y,
-        troops: memory.troops,
+        troops: JSON.stringify(memory.troops),
         surrounding: memory.surrounding,
         mapInfo: mapInfo,
         asciiMap: asciiMap,
-        adjacentEntities: adjacentEntities,
+        adjacentEntities: adjacentEntitiesInfo,
         pathfindingInfo: pathfindingInfo,
         availableDirections: memory.mapState.availableDirections,
         recommendedPath: memory.mapState.recommendedPath,
@@ -299,11 +344,11 @@ Use the moveExplorer action with the recommended directions to approach the near
     return render(template, {
       x: memory.x,
       y: memory.y,
-      troops: memory.troops,
+      troops: JSON.stringify(memory.troops),
       surrounding: memory.surrounding,
       mapInfo: mapInfo,
       asciiMap: asciiMap,
-      adjacentEntities: adjacentEntities,
+      adjacentEntities: adjacentEntitiesInfo,
       pathfindingInfo: pathfindingInfo,
       availableDirections: memory.mapState.availableDirections,
       recommendedPath: memory.mapState.recommendedPath,
@@ -340,23 +385,26 @@ Use the moveExplorer action with the recommended directions to approach the near
         state.memory.y = state.memory.y || 0; // Access via state.memory
       } else {
         const { x, y } = troopNode.coord;
+        console.log({ x, y });
         state.memory.x = x; // Access via state.memory
         state.memory.y = y; // Access via state.memory
 
         // Fetch current tick for stamina calculation
-        const currentTick = await fetchCurrentTick();
+        const currentTick = await getCurrentTick();
 
         // Process troop stamina
         const troop = troopNode.troops;
+
         const calculatedStamina = calculateStamina(
           troop.stamina,
           troop.category,
           currentTick
         );
-        state.memory.troops = {
+
+        const troops = {
           // Access via state.memory
           ...troop,
-          calculatedStamina: {
+          stamina: {
             ...calculatedStamina,
             percentFull: Math.round(
               (calculatedStamina.amount / calculatedStamina.maxStamina) * 100
@@ -367,6 +415,7 @@ Use the moveExplorer action with the recommended directions to approach the near
             canExplore: false, // can't explore
           },
         };
+
         agent.logger.debug(
           "Loader: Updated position and troops",
           JSON.stringify({
@@ -397,69 +446,50 @@ Use the moveExplorer action with the recommended directions to approach the near
         throw new Error(`Failed to fetch tiles: ${tileResponse.message}`);
       }
 
-      let tiles: Array<{
-        biome: number;
-        col: number;
-        row: number;
-        occupier_id?: number;
-      }> = [];
-      const exploredTiles: Record<
-        string,
-        {
-          biome: number;
-          col: number;
-          row: number;
-          occupier_id?: number;
-          occupier_type?: number;
-        }
-      > = {};
-      const occupiedTiles: Record<string, number> = {};
-      let adjacentEntities: Array<{
-        direction: number;
-        col: number;
-        row: number;
-        occupier_id: number;
-        distance: number;
-      }> = [];
-      let calculatedNearestEntities: Array<{
-        col: number;
-        row: number;
-        occupier_id: number;
-        occupier_type: number;
-        distance: number;
-        path?: Array<{ direction: number; col: number; row: number }>;
-      }> = [];
-      let calculatedRecommendedPath: Array<number> | undefined = undefined;
+      const mapState: EternumMemory["mapState"] = {
+        tiles: [],
+        occupiedTiles: {},
+        exploredTiles: {},
+        adjacentEntities: [],
+        availableDirections: [],
+        nearestEntities: [],
+        recommendedPath: undefined,
+        lastUpdated: Date.now(),
+      };
 
       if (tileResponse.s1EternumTileModels?.edges) {
-        tiles = tileResponse.s1EternumTileModels.edges.map((edge) => edge.node);
+        mapState.tiles = tileResponse.s1EternumTileModels.edges.map(
+          (edge) => edge.node
+        );
 
-        tiles.forEach((tile) => {
+        mapState.tiles.forEach((tile) => {
           const tileKey = `${tile.col},${tile.row}`;
-          exploredTiles[tileKey] = tile;
+          mapState.exploredTiles[tileKey] = tile;
           if (tile.occupier_id) {
-            occupiedTiles[tileKey] = tile.occupier_id;
+            mapState.occupiedTiles[tileKey] = tile.occupier_id;
           }
         });
 
         // Find adjacent and nearest entities
-        adjacentEntities = findAdjacentEntities(
-          exploredTiles,
+        mapState.adjacentEntities = findAdjacentEntities(
+          mapState.exploredTiles,
           state.memory.x,
           state.memory.y
-        ); // Access via state.memory
+        );
+
         const { nearestEntities: foundNearest, recommendedPath: foundPath } =
-          findNearestEntity(exploredTiles, state.memory.x, state.memory.y); // Access via state.memory
-        calculatedNearestEntities = foundNearest; // Assign separately
-        calculatedRecommendedPath = foundPath; // Assign separately
+          findNearestEntity(
+            mapState.exploredTiles,
+            state.memory.x,
+            state.memory.y
+          );
+
+        mapState.nearestEntities = foundNearest; // Assign separately
+        mapState.recommendedPath = foundPath; // Assign separately
 
         agent.logger.debug(
           "Loader: Updated map state",
-          JSON.stringify({
-            tile_count: tiles.length,
-            adjacent: adjacentEntities.length,
-            nearest: calculatedNearestEntities.length,
-          })
+          JSON.stringify(mapState)
         );
       } else {
         agent.logger.warn(
@@ -479,25 +509,17 @@ Use the moveExplorer action with the recommended directions to approach the near
 
         // A direction is available if the tile exists and is not occupied
         if (
-          exploredTiles[neighborKey] &&
-          (!exploredTiles[neighborKey].occupier_type ||
-            exploredTiles[neighborKey].occupier_type === TileOccupier.None)
+          mapState.exploredTiles[neighborKey] &&
+          (!mapState.exploredTiles[neighborKey].occupier_type ||
+            mapState.exploredTiles[neighborKey].occupier_type ===
+              TileOccupier.None)
         ) {
           availableDirections.push(direction);
         }
       }
+
       // Update map state in memory
-      state.memory.mapState = {
-        // Access via state.memory
-        tiles,
-        exploredTiles,
-        occupiedTiles,
-        adjacentEntities,
-        nearestEntities: [], // Assign the calculated value
-        recommendedPath: [], // Assign the calculated value
-        availableDirections: availableDirections, // Assign the calculated value
-        lastUpdated: Date.now(),
-      };
+      state.memory.mapState = mapState;
 
       // 3. Fetch troops in range (use default range 20)
       const range = MAP_RADIUS;
@@ -505,10 +527,10 @@ Use the moveExplorer action with the recommended directions to approach the near
         torii_url,
         TROOPS_IN_RANGE_QUERY,
         {
-          xMin: state.memory.x - range, // Access via state.memory
-          xMax: state.memory.x + range, // Access via state.memory
-          yMin: state.memory.y - range, // Access via state.memory
-          yMax: state.memory.y + range, // Access via state.memory
+          xMin: state.memory.x - range,
+          xMax: state.memory.x + range,
+          yMin: state.memory.y - range,
+          yMax: state.memory.y + range,
         }
       );
 
@@ -518,10 +540,9 @@ Use the moveExplorer action with the recommended directions to approach the near
         );
       }
 
-      let processedSurroundingTroops: any[] = [];
       if (surroundingResponse.s1EternumExplorerTroopsModels?.edges) {
-        const currentTick = await fetchCurrentTick(); // Fetch tick again if needed or pass from above
-        processedSurroundingTroops =
+        const currentTick = await getCurrentTick(); // Fetch tick again if needed or pass from above
+        state.memory.surrounding =
           surroundingResponse.s1EternumExplorerTroopsModels.edges
             .filter((edge) => edge?.node?.explorer_id !== explorer_id) // Filter out self
             .map((edge) => {
@@ -531,11 +552,20 @@ Use the moveExplorer action with the recommended directions to approach the near
                 troop.category,
                 currentTick
               );
+
+              const distance = calculateHexDistance(
+                state.memory.x,
+                state.memory.y,
+                edge.node.coord.x,
+                edge.node.coord.y
+              );
+
               return {
                 ...edge.node,
+                distance,
                 troops: {
                   ...troop,
-                  calculatedStamina: {
+                  stamina: {
                     ...calculatedStamina,
                     percentFull: Math.round(
                       (calculatedStamina.amount /
@@ -555,7 +585,7 @@ Use the moveExplorer action with the recommended directions to approach the near
         agent.logger.debug(
           "Loader: Updated surrounding troops",
           JSON.stringify({
-            count: processedSurroundingTroops.length,
+            count: state.memory.surrounding.length,
           })
         );
       } else {
@@ -566,8 +596,6 @@ Use the moveExplorer action with the recommended directions to approach the near
           })
         );
       }
-
-      state.memory.surrounding = processedSurroundingTroops; // Access via state.memory
     } catch (error) {
       console.error(
         "Error in loader function",
@@ -577,11 +605,6 @@ Use the moveExplorer action with the recommended directions to approach the near
         })
       );
     }
-  },
-
-  description({}) {
-    return `I want you to act as a Player in the Eternum game.
-    `;
   },
 }).setActions([
   // action({
@@ -609,7 +632,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process the single troop
   //     const troop = node.troops;
@@ -680,7 +703,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process each troop's stamina
   //     const processedTroops = response.s1EternumExplorerTroopsModels.edges.map(
@@ -753,7 +776,7 @@ Use the moveExplorer action with the recommended directions to approach the near
   //     }
 
   //     // Fetch current tick
-  //     const currentTick = await fetchCurrentTick();
+  //     const currentTick = await getCurrentTick();
 
   //     // Process troops - ensure troops is treated as a single object
   //     const troop = nodeData.troops;
@@ -795,14 +818,19 @@ Use the moveExplorer action with the recommended directions to approach the near
   action({
     name: "eternum.moveExplorer",
     examples: [
-      `<action type="eternum.moveExplorer">{"direction": [0,1]}</action>`,
-      `<action type="eternum.moveExplorer">{"direction": [0,1,2]}</action>`,
-      `<action type="eternum.moveExplorer">{"direction": [0,1,2,3]}</action>`,
-      `<action type="eternum.moveExplorer">{"direction": [0,1,2,3,4]}</action>`,
-      `<action type="eternum.moveExplorer">{"direction": [0,1,2,3,4,5]}</action>`,
+      `<action_call name="eternum.moveExplorer">{"direction": [0,1]}</action_call>`,
+      `<action_call name="eternum.moveExplorer">{"direction": [0,1,2]}</action_call>`,
+      `<action_call name="eternum.moveExplorer">{"direction": [0,1,2,3]}</action_call>`,
+      `<action_call name="eternum.moveExplorer">{"direction": [0,1,2,3,4]}</action_call>`,
+      `<action_call name="eternum.moveExplorer">{"direction": [0,1,2,3,4,5]}</action_call>`,
     ],
-    description:
-      "Move the explorer to a new position. You can move multiple hexes in one action by providing an array of directions. Each direction will be executed in sequence, allowing you to move multiple hexes in one turn. For example, [0, 1] means move East, then NorthEast. Make sure all tiles in your path are explored before attempting multi-direction movement. You can only move in the <available-directions>.",
+    instructions: `\
+Move the explorer to a new position. 
+You can move multiple hexes in one action by providing an array of directions. 
+Each direction will be executed in sequence, allowing you to move multiple hexes in one turn. 
+For example, [0, 5] means move East, then Northeast. 
+Make sure all tiles in your path are explored before attempting multi-direction movement. 
+You can only move in the <available-directions>.`,
     schema: z.object({
       direction: z.number().array(),
     }),
@@ -812,6 +840,8 @@ Use the moveExplorer action with the recommended directions to approach the near
         const memory = ctx.memory;
         const currentX = memory.x;
         const currentY = memory.y;
+
+        console.log({ oldPos: { x: currentX, y: currentY } });
 
         // Validate that the tiles we're trying to move to have been explored
         if (call.direction && call.direction.length > 0) {
@@ -841,6 +871,15 @@ Use the moveExplorer action with the recommended directions to approach the near
             posX = nextPos.x;
             posY = nextPos.y;
           }
+
+          console.log({ nextPos: { x: posX, y: posY } });
+        } else {
+          const nextPos = getNeighborCoord(
+            currentX,
+            currentY,
+            call.direction[0]
+          );
+          console.log({ nextPos });
         }
 
         const moveCall: Call = {
@@ -880,7 +919,11 @@ Use the moveExplorer action with the recommended directions to approach the near
         }
 
         // Return the goal for task decomposition
-        return { result: "success" };
+        return {
+          result: "success",
+          oldPos: { x: currentX, y: currentY },
+          newPos: { x: memory.x, y: memory.y },
+        };
       } catch (error) {
         agent.logger.error(
           "Error moving explorer",
@@ -915,17 +958,15 @@ Use the moveExplorer action with the recommended directions to approach the near
   action({
     name: "eternum.attackOtherExplorers",
     description:
-      "Use this what you need to attack another explorer. Only use this to attack explorers. ",
+      "Use this what you need to attack another explorer. Only use this to attack explorers.",
     schema: z.object({
       aggressor_id: z.number().describe("This is your explorer id"),
       defender_id: z.number().describe("ID of the explorer you want to attack"),
-      defender_direction: z.number().describe(
-        `Direction to the defender(you have to be adjacent to the defender to attack them):  
-        0 → East        1 → Southeast
-        2 → Southwest  3 → West
-        4 → Northwest  5 → Northeast         
-      `
-      ),
+      defender_direction: z.number().describe(`\
+Direction to the defender (you have to be adjacent to the defender to attack them):  
+0 → East       1 → Southeast
+2 → Southwest  3 → West
+4 → Northwest  5 → Northeast`),
     }),
     async handler(call, ctx, agent) {
       try {
@@ -959,9 +1000,9 @@ Use the moveExplorer action with the recommended directions to approach the near
         // Check if there's an entity in that direction with the matching ID
         const adjacentEntities = memory.mapState.adjacentEntities || [];
         const targetEntity = adjacentEntities.find(
-          (entity: { direction: number; occupier_id: number }) =>
-            entity.direction === call.defender_direction &&
-            entity.occupier_id === call.defender_id
+          ({ direction, occupier_id }) =>
+            direction === call.defender_direction &&
+            occupier_id === call.defender_id
         );
 
         if (!targetEntity) {
@@ -974,7 +1015,7 @@ Use the moveExplorer action with the recommended directions to approach the near
         const resourcesResponse = await fetchGraphQL<GraphQLResponse>(
           torii_url,
           RESOURCES_QUERY,
-          { entity_id: call.defender_id }
+          { where: { entity_id: call.defender_id } }
         );
 
         if (resourcesResponse instanceof Error) {
@@ -1054,13 +1095,11 @@ Use the moveExplorer action with the recommended directions to approach the near
         .number()
         .describe("ID of the explorer initiating the attack"),
       structure_id: z.number().describe("ID of the structure being attacked"),
-      structure_direction: z.number().describe(
-        `Direction to the structure:  
-          0 → East       1 → Southeast
-          2 → Southwest  3 → West
-          4 → Northwest  5 → Northeast 
-          `
-      ),
+      structure_direction: z.number().describe(`\
+Direction to the structure:  
+0 → East       1 → Southeast
+2 → Southwest  3 → West
+4 → Northwest  5 → Northeast`),
     }),
     async handler(call, ctx, agent) {
       try {
@@ -1109,7 +1148,7 @@ Use the moveExplorer action with the recommended directions to approach the near
         const resourcesResponse = await fetchGraphQL<GraphQLResponse>(
           torii_url,
           RESOURCES_QUERY,
-          { entity_id: call.structure_id }
+          { where: { entity_id: call.structure_id } }
         );
 
         if (resourcesResponse instanceof Error) {
@@ -1200,13 +1239,11 @@ Use the moveExplorer action with the recommended directions to approach the near
         .number()
         .describe("ID of the explorer initiating the attack"),
       structure_id: z.number().describe("ID of the structure being attacked"),
-      structure_direction: z.number().describe(
-        `Direction to the structure:  
-          0 → East       1 → Southeast
-          2 → Southwest  3 → West
-          4 → Northwest  5 → Northeast 
-          `
-      ),
+      structure_direction: z.number().describe(`\
+Direction to the structure:  
+0 → East       1 → Southeast
+2 → Southwest  3 → West
+4 → Northwest  5 → Northeast`),
     }),
     async handler(call, ctx, agent) {
       try {
@@ -1303,39 +1340,35 @@ export const eternum = extension({
     eternum: eternumContext,
   },
   inputs: {
-    "recurring:trigger": input({
-      schema: z.object({
-        timestamp: z.number(),
-        message: z.string(),
-      }),
-      format: ({ timestamp }) =>
-        `Recurring task triggered at ${new Date(timestamp).toISOString()}`,
-
-      async subscribe(send) {
-        const intervalMs = INTERVAL_MINUTES * 60 * 1000;
-
-        console.info(
-          "Setting up recurring task",
-          JSON.stringify({
-            interval_minutes: INTERVAL_MINUTES,
-          })
-        );
-
-        const intervalId = setInterval(async () => {
-          send(
-            eternumContext,
-            { channelId: "eternum" },
-            {
-              timestamp: Date.now(),
-              message: "Try and move around and attack entities! 💀",
-            }
-          );
-        }, intervalMs);
-
-        return () => {
-          clearInterval(intervalId);
-        };
-      },
-    }),
+    // "recurring:trigger": input({
+    //   schema: z.object({
+    //     timestamp: z.number(),
+    //     message: z.string(),
+    //   }),
+    //   format: ({ timestamp }) =>
+    //     `Recurring task triggered at ${new Date(timestamp).toISOString()}`,
+    //   async subscribe(send) {
+    //     const intervalMs = INTERVAL_MINUTES * 60 * 1000;
+    //     console.info(
+    //       "Setting up recurring task",
+    //       JSON.stringify({
+    //         interval_minutes: INTERVAL_MINUTES,
+    //       })
+    //     );
+    //     const intervalId = setInterval(async () => {
+    //       send(
+    //         eternumContext,
+    //         { channelId: "eternum" },
+    //         {
+    //           timestamp: Date.now(),
+    //           message: "Try and move around and attack entities! 💀",
+    //         }
+    //       );
+    //     }, intervalMs);
+    //     return () => {
+    //       clearInterval(intervalId);
+    //     };
+    //   },
+    // }),
   },
 });

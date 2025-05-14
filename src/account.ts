@@ -7,7 +7,7 @@ import {
   stark,
   type Call,
 } from "starknet";
-import { ownership_systems } from "./extract";
+import { ownership_systems } from "./game/extract";
 import { CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 
 // Configuration
@@ -67,8 +67,34 @@ export const executeWithRetry = async (
   }
 };
 
+export function createAccount(publicKey: string, privateKey: string) {
+  // Calculate future address of the ArgentX account
+  const axSigner = new CairoCustomEnum({ Starknet: { pubkey: publicKey } });
+  const axGuardian = new CairoOption<unknown>(CairoOptionVariant.None);
+  const AXConstructorCallData = CallData.compile({
+    owner: axSigner,
+    guardian: axGuardian,
+  });
+
+  const contractAddress = hash.calculateContractAddressFromHash(
+    publicKey,
+    argentXaccountClassHash,
+    AXConstructorCallData,
+    0
+  );
+  console.log("Precalculated account address=", contractAddress);
+
+  const account = new Account(rpc, contractAddress, privateKey);
+
+  return account;
+}
+
 // Create new account
-export const createNewAccount = async () => {
+export const createNewAccount = async ({
+  explorer_id,
+}: {
+  explorer_id: number;
+}) => {
   // Generate public and private key pair
   const privateKey = stark.randomAddress();
   console.log("New ArgentX account:\nprivateKey=", privateKey);
@@ -114,15 +140,8 @@ export const createNewAccount = async () => {
       contract_address
     );
 
-    await transferAccount(
-      parseInt(process.env.EVENT_DATA_1 || "182"),
-      contract_address
-    );
-    console.log(
-      "✅ Account transferred to ",
-      contract_address,
-      parseInt(process.env.EVENT_DATA_1 || "182")
-    );
+    await transferAccount(explorer_id, contract_address);
+    console.log("✅ Account transferred to ", contract_address, explorer_id);
 
     return account;
   } catch (error) {

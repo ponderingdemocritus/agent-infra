@@ -1,3 +1,5 @@
+import type { formatResources } from "./client";
+import type { ResourceBalances } from "./queries";
 import {
   BiomeType,
   TICKS,
@@ -140,14 +142,14 @@ export function calculateStamina(
   troopCategory: string,
   currentTick: number
 ): {
-  amount: number;
+  current: number;
   updated_tick: number;
-  maxStamina: number;
+  max: number;
   staminaCostForTravel: number;
   staminaCostForExplore: number;
 } {
   // Convert hex strings to numbers
-  const amount = parseInt(staminaValue.amount, 16);
+  const current = parseInt(staminaValue.amount, 16);
   const updatedTick = parseInt(staminaValue.updated_tick, 16);
 
   // Get troop type
@@ -160,7 +162,7 @@ export function calculateStamina(
     staminaInitial: WORLD_CONFIG.troop_stamina_config.stamina_initial,
     staminaMax: 200,
   };
-  const maxStamina = troopConfig.staminaMax;
+  const max = troopConfig.staminaMax;
 
   // Stamina gain per tick from config
   const staminaGainPerTick =
@@ -169,9 +171,9 @@ export function calculateStamina(
   // If current tick is less than or equal to updated tick, return current values
   if (currentTick <= updatedTick) {
     return {
-      amount,
+      current,
       updated_tick: updatedTick,
-      maxStamina,
+      max,
       staminaCostForTravel:
         WORLD_CONFIG.troop_stamina_config.stamina_travel_stamina_cost,
       staminaCostForExplore:
@@ -182,7 +184,7 @@ export function calculateStamina(
   // Calculate refill
   const numTicksPassed = currentTick - updatedTick;
   const totalStaminaSinceLastTick = numTicksPassed * staminaGainPerTick;
-  const newAmount = Math.min(amount + totalStaminaSinceLastTick, maxStamina);
+  const newAmount = Math.min(current + totalStaminaSinceLastTick, max);
 
   // Get standard costs for travel and explore
   const staminaCostForTravel =
@@ -191,16 +193,16 @@ export function calculateStamina(
     WORLD_CONFIG.troop_stamina_config.stamina_explore_stamina_cost;
 
   return {
-    amount: newAmount,
+    current: newAmount,
     updated_tick: currentTick,
-    maxStamina,
+    max,
     staminaCostForTravel,
     staminaCostForExplore,
   };
 }
 
 // Function to fetch the current game tick
-export async function fetchCurrentTick(): Promise<number> {
+export function getCurrentTick(): number {
   // This is a placeholder, ideally you would get this from the blockchain or an API
   // For testing, we can return a large number to simulate the current tick
   const currentTimestamp = Math.floor(Date.now() / 1000);
@@ -448,7 +450,7 @@ export function generateASCIIMap(
         priority = "(P1: Attack)";
       } else if (key.startsWith("Realm")) {
         priority = "(P2: Attack)";
-      } else if (key.startsWith("Village")) {
+      } else if (key.startsWith("Village") || key.startsWith("FragmentMine")) {
         priority = "(P3: Attack)";
       } else if (key.startsWith("Bank")) {
         priority = "(P4: Attack)";
@@ -704,6 +706,31 @@ export function findPathToTarget(
   let currentX = startX;
   let currentY = startY;
 
+  let distance = calculateHexDistance(currentX, currentY, targetX, targetY);
+
+  let bestDistance = distance;
+
+  if (distance === 1) {
+    for (let direction = 0; direction < 6; direction++) {
+      const neighbor = getNeighborCoord(currentX, currentY, direction);
+      const distance = calculateHexDistance(
+        neighbor.x,
+        neighbor.y,
+        targetX,
+        targetY
+      );
+
+      if (distance === 0) {
+        path.push({
+          direction: direction,
+          col: neighbor.x,
+          row: neighbor.y,
+        });
+        return path;
+      }
+    }
+  }
+
   // Keep going until we're adjacent to the target or reach max path length
   while (
     calculateHexDistance(currentX, currentY, targetX, targetY) > 1 &&
@@ -711,7 +738,6 @@ export function findPathToTarget(
   ) {
     // Find the best direction that brings us closer to the target
     let bestDirection = -1;
-    let bestDistance = Infinity;
 
     for (let direction = 0; direction < 6; direction++) {
       const neighbor = getNeighborCoord(currentX, currentY, direction);
@@ -728,7 +754,10 @@ export function findPathToTarget(
         targetX,
         targetY
       );
-      if (distance < bestDistance) {
+
+      console.log({ direction, distance });
+
+      if (distance <= bestDistance) {
         bestDistance = distance;
         bestDirection = direction;
       }
@@ -736,13 +765,14 @@ export function findPathToTarget(
 
     // If we can't find a valid direction, break
     if (bestDirection === -1) {
-      break;
+      return path;
     }
 
     // Move in the best direction
     const nextPos = getNeighborCoord(currentX, currentY, bestDirection);
     currentX = nextPos.x;
     currentY = nextPos.y;
+    console.log({ bestDirection, bestDistance, nextPos });
 
     // Add to path
     path.push({
@@ -759,20 +789,26 @@ export const nanogramToKg = (value: number) => {
   return value / 10 ** 12;
 };
 
-export const getRemainingCapacityInKg = (resource: any) => {
-  const weight = resource?.weight;
+export const getRemainingCapacityInKg = (storage: {
+  current: number;
+  max: number;
+}) => {
+  const weight = storage.current;
 
   if (!weight) return 0;
 
-  return nanogramToKg(Number(weight.capacity - weight.weight)) || 0;
+  return nanogramToKg(Number(storage.max - storage.current)) || 0;
 };
 
 export const getRemainingCapacity = (
-  resource: any,
+  storage: {
+    current: number;
+    max: number;
+  },
   defenderDamage: number,
   capacityConfigArmy: number
 ) => {
-  const remainingCapacity = getRemainingCapacityInKg(resource);
+  const remainingCapacity = getRemainingCapacityInKg(storage);
   const remainingCapacityAfterRaid =
     remainingCapacity - (defenderDamage || 0) * capacityConfigArmy;
 
@@ -829,40 +865,37 @@ export const getStealableResources = (
   return stealableResources;
 };
 
+// Process structure's resources to determine what can be stolen
+const resourceIdMapping: Record<string, number> = {};
+Object.entries(ResourcesIds).forEach(([key, value]) => {
+  if (value === 23) return;
+  if (isNaN(Number(key)) && (value < 25 || value > 34))
+    resourceIdMapping[key.toLowerCase()] = value as number;
+});
+
+// console.log(resourceIdMapping);
+
 export const processResourceData = (
-  resourceData: any,
+  { storage, balances }: ReturnType<typeof formatResources>,
   defenderDamage = 0,
-  capacityConfigArmy = 0,
-  resourcesIds: { [key: string]: number }
+  capacityConfigArmy = 0
 ): Array<{ resourceId: number; amount: number }> => {
-  if (!resourceData?.data?.s1EternumResourceModels?.edges?.[0]?.node) {
-    return [];
-  }
-
-  const resourceNode = resourceData.data.s1EternumResourceModels.edges[0].node;
-  const capacity = {
-    capacity: parseInt(resourceNode.weight.capacity, 16),
-    weight: parseInt(resourceNode.weight.weight, 16),
-  };
-
   // Create resource object needed by getRemainingCapacityInKg
-  const resourceObj = { weight: capacity };
 
   // Calculate remaining capacity
   const remainingCapacity = getRemainingCapacity(
-    resourceObj,
+    storage,
     defenderDamage,
     capacityConfigArmy
   );
 
   // Extract all resources with non-zero balances
-  const availableResources = Object.entries(resourceNode)
-    .filter(([key, value]) => key.endsWith("_BALANCE") && value !== "0x0")
-    .map(([key, value]) => {
-      const resourceName = key.replace("_BALANCE", "");
+  const availableResources = Object.entries(balances)
+    .filter(([key]) => resourceIdMapping[key])
+    .map(([key, amount]) => {
       return {
-        resourceId: resourcesIds[resourceName] || 0, // Use the provided resourcesIds map
-        amount: parseInt(value as string, 16),
+        resourceId: resourceIdMapping[key],
+        amount,
       };
     });
 

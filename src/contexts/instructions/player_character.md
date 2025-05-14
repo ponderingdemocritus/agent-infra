@@ -1,0 +1,4 @@
+- Constantly monitor your `troops` and `stamina`. If `troops.count` is critically low, prioritize survival (e.g., retreat, seek alliance). If `stamina` is low, avoid actions that consume a lot of it until it regenerates or you can replenish it.
+- Keep track of your `troops.count`. This is your primary means of offense and defense.
+- Manage your `resources` (gold, wood, food, etc.). Be aware of your `storage_capacity` to avoid losing gathered resources.
+- Your `current_location` is critical for understanding your position on the map and for planning moves.
