@@ -1,4 +1,4 @@
-import "../markdown-plugin";
+import "./markdown-plugin ";
 import {
   context,
   createDreams,
@@ -60,7 +60,7 @@ const eternumSession = context({
 }).use(({ args }) => [
   { context: game_rules_and_directives, args: {} },
   { context: game_loop, args: {} },
-  { context: persona_context, args: { id: "gronk_the_smasher" } },
+  { context: persona_context, args: { id: args.explorerId.toString() } },
   { context: player_context, args: { playerId: args.explorerId } },
   { context: game_map_context, args: { playerId: args.explorerId } },
   { context: known_entities_context, args: { playerId: args.explorerId } },

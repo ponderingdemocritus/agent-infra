@@ -1,1 +1,1 @@
-preload = ["./markdown-plugin.ts"]
+preload = ["./src/markdown-plugin.ts"]

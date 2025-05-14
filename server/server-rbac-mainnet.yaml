@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: chairman-server-sa
-  namespace: my-agents
+  namespace: my-agents-mainnet
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: chairman-job-creator-role
-  namespace: my-agents
+  namespace: my-agents-mainnet
 rules:
 - apiGroups: ["batch"] # API group for Jobs
   resources: ["jobs"]  # Resource type
@@ -24,12 +24,12 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: chairman-server-job-creator-binding
-  namespace: my-agents
+  namespace: my-agents-mainnet
 subjects:
 - kind: ServiceAccount
   name: chairman-server-sa # Link to the ServiceAccount above
-  namespace: my-agents
+  namespace: my-agents-mainnet
 roleRef:
   kind: Role # Link to the Role above
   name: chairman-job-creator-role
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: rbac.authorization.k8s.io 

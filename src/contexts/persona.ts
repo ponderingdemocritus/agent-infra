@@ -1,15 +1,15 @@
 import { context } from "@daydreamsai/core";
 import personaInstructions from "./instructions/persona.md";
 
-import personaData from "./data/personas/gronk_the_smasher.json";
 import { z } from "zod";
+import { generatePersona } from "./generate_persona";
 
 export const persona_context = context({
   type: "persona",
   schema: { id: z.string() },
   key: ({ id }) => id,
   instructions: personaInstructions,
-  create(params, agent) {
-    return personaData;
+  async create(params, agent) {
+    return await generatePersona(parseInt(params.id));
   },
 });
