@@ -129,6 +129,12 @@ const chatContext = context({
     Chat Context
     `;
   },
+}).setInputs({
+  "chat.message": input({
+    schema: z.object({
+      chat: z.object({ id: z.string(), text: z.string() }),
+    }),
+  }),
 });
 
 export const chat = extension({

@@ -52,8 +52,6 @@ async function getExplorerAccount({
 
   if (keys) return createAccount(keys.publicKey, keys.privateKey);
 
-  console.log("creating new account");
-
   const { account, publicKey, privateKey } = await createNewAccount({
     explorer_id,
   });

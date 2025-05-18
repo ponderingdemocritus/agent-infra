@@ -1,4 +1,4 @@
-import { context } from "@daydreamsai/core";
+import { action, context } from "@daydreamsai/core";
 import { eternum } from "../game/client";
 import { player_context } from "./player";
 import { z } from "zod";
@@ -8,11 +8,23 @@ import mapInstructions from "./instructions/game_map.md";
 export const game_map_context = context({
   type: "game_map",
   description:
-    "This context represents Agents's knowledge of the game world's geography and its features.",
+    "This context represents Agents's knowledge of the game world's geography and its features. ",
   instructions: "\n" + mapInstructions,
 
   schema: { playerId: z.number() },
   key: ({ playerId }) => playerId.toString(),
+  actions: [
+    action({
+      name: "game_map.get_tiles",
+      description: "get the tiles in the game map",
+      schema: z.object({}),
+      handler(args, ctx) {
+        return {
+          tiles: ctx.memory.grid,
+        };
+      },
+    }),
+  ],
 
   async create(params, agent) {
     return {
