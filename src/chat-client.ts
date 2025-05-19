@@ -56,12 +56,11 @@ class ChatClient {
     username: string,
     logLevel: LogLevel = LogLevel.INFO
   ) {
-    // http://host.docker.internal:3000
-    //agent-chat-production-35e4.up.railway.app
-    this.socket = io("https://agent-chat-production-35e4.up.railway.app", {
+    this.socket = io(process.env.WS_SERVER, {
       auth: { token, username },
       transports: ["websocket"],
       timeout: 10000,
+      autoConnect: false, // Prevent automatic connection
     });
 
     this.username = username;
@@ -69,9 +68,7 @@ class ChatClient {
       level: logLevel,
     });
 
-    this.setupListeners();
-
-    // Log connection status
+    // Setup essential connection lifecycle listeners first
     this.socket.on("connect", () => {
       this.logger.info("ChatClient", "Connected to server");
     });
@@ -83,11 +80,17 @@ class ChatClient {
     this.socket.on("disconnect", (reason) => {
       this.logger.info("ChatClient", `Disconnected: ${reason}`);
     });
+
+    // Setup other application-specific event listeners
+    this.setupListeners();
+
+    // Now, explicitly connect
+    this.socket.connect();
   }
 
   private setupListeners() {
     this.socket.on("initialData", (data) => {
-      // this.logger.debug("ChatClient", `initaldata`, data);
+      this.logger.debug("ChatClient", `initaldata`, data);
       // Update UI handled by message stream
     });
 
@@ -126,7 +129,6 @@ class ChatClient {
 
     // Direct messages
     this.socket.on("directMessage", (data) => {
-      console.log("directMessage", data);
       const { senderId, message, senderUsername } = data;
       if (senderUsername === this.username) {
         this.logger.debug(
@@ -140,9 +142,9 @@ class ChatClient {
         userId: senderId,
         platformId: "chat",
         userName: senderUsername,
-        threadId: senderId, // Use sender ID as thread ID for DMs
+        threadId: senderId,
         directMessage: true,
-        contentId: Date.now().toString(), // Generate a unique ID
+        contentId: Date.now().toString(),
         data: {
           content: message,
         },
@@ -150,56 +152,56 @@ class ChatClient {
     });
 
     // Room messages
-    this.socket.on("roomMessage", (data) => {
-      const { senderId, message, senderUsername, roomId } = data;
+    // this.socket.on("roomMessage", (data) => {
+    //   const { senderId, message, senderUsername, roomId } = data;
 
-      console.log("roomMessage", data);
-      if (senderUsername === this.username) {
-        this.logger.debug(
-          "ChatClient",
-          `Skipping own message from ${this.username}`
-        );
-        return;
-      }
+    //   console.log("roomMessage", data);
+    //   if (senderUsername === this.username) {
+    //     this.logger.debug(
+    //       "ChatClient",
+    //       `Skipping own message from ${this.username}`
+    //     );
+    //     return;
+    //   }
 
-      onData({
-        userId: senderId,
-        userName: senderUsername,
-        platformId: "chat",
-        threadId: roomId,
-        directMessage: false,
-        contentId: Date.now().toString(),
-        data: {
-          content: message,
-          roomId: roomId,
-        },
-      });
-    });
+    //   onData({
+    //     userId: senderId,
+    //     userName: senderUsername,
+    //     platformId: "chat",
+    //     threadId: roomId,
+    //     directMessage: false,
+    //     contentId: Date.now().toString(),
+    //     data: {
+    //       content: message,
+    //       roomId: roomId,
+    //     },
+    //   });
+    // });
 
-    // Global messages
-    this.socket.on("globalMessage", (data) => {
-      const { senderId, message, senderUsername } = data;
-      if (senderUsername === this.username) {
-        this.logger.debug(
-          "ChatClient",
-          `Skipping own message from ${this.username}`
-        );
-        return;
-      }
+    // // Global messages
+    // this.socket.on("globalMessage", (data) => {
+    //   const { senderId, message, senderUsername } = data;
+    //   if (senderUsername === this.username) {
+    //     this.logger.debug(
+    //       "ChatClient",
+    //       `Skipping own message from ${this.username}`
+    //     );
+    //     return;
+    //   }
 
-      onData({
-        userId: senderId,
-        platformId: "chat",
-        userName: senderUsername,
-        threadId: "global",
-        directMessage: false,
-        contentId: Date.now().toString(),
-        data: {
-          content: message,
-          roomId: "global",
-        },
-      });
-    });
+    //   onData({
+    //     userId: senderId,
+    //     platformId: "chat",
+    //     userName: senderUsername,
+    //     threadId: "global",
+    //     directMessage: false,
+    //     contentId: Date.now().toString(),
+    //     data: {
+    //       content: message,
+    //       roomId: "global",
+    //     },
+    //   });
+    // });
   }
 
   /**

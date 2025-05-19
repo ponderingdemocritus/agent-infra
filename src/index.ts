@@ -19,7 +19,11 @@ import path from "path";
 import { checkForDeath } from "./death";
 import { eternumSession } from "./contexts/session";
 import { createInstructionsInput } from "./inputs";
-import { createChatService } from "./contexts/chat";
+import {
+  chat_global_context,
+  chatExtension,
+  createChatService,
+} from "./contexts/chat";
 import {
   generatePersona,
   generatePersonaUUID,
@@ -87,6 +91,7 @@ async function initializeAgent<TContext extends AnyContext>({
       },
       contexts: [session],
       services: [chatService],
+      extensions: [chatExtension],
     });
 
     await agent.start();
@@ -164,13 +169,12 @@ const agent = await initializeAgent({
 
 // chat testing
 
-const chatClient = agent.container.resolve<ChatClient>("eternum.chat");
-
-await new Promise<void>((resolve) =>
-  chatClient.socket.on("connect", () => {
-    resolve();
-  })
-);
+// await new Promise<void>((resolve) =>
+//   chatClient.socket.on("connect", () => {
+//     console.log("connected to chat");
+//     resolve();
+//   })
+// );
 // await agent.send({
 //   context: eternumSession,
 //   args: { explorerId, sessionId },

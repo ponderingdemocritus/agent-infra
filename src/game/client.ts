@@ -20,13 +20,17 @@ import {
 } from "./extract";
 import { TICKS } from "./types";
 
-const torii_url = "https://api.cartridge.gg/x/eternum-sepolia-2/torii/graphql";
+if (!process.env.TORII) {
+  throw new Error("TORII_URL is not set");
+}
+
+const TORII = process.env.TORII + "/graphql";
 
 async function client<T = any>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetchGraphQL<T>(torii_url, query, variables);
+  const res = await fetchGraphQL<T>(TORII, query, variables);
   if (res instanceof Error) {
     throw res;
   }

@@ -34,11 +34,12 @@ export function createInstructionsInput<TContext extends AnyContext>({
       const controller = new AbortController();
 
       if (enabled) {
-        if (interval > 0) await sleep(1000);
-        while (!controller.signal.aborted) {
-          send(context, args, message);
-          await sleep(intervalMs);
-        }
+        setImmediate(async () => {
+          while (!controller.signal.aborted) {
+            send(context, args, message);
+            await sleep(intervalMs);
+          }
+        });
       }
 
       return () => {

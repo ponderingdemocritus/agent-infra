@@ -1,6 +1,7 @@
 import {
   Account,
   CallData,
+  constants,
   ec,
   hash,
   RpcProvider,
@@ -11,14 +12,14 @@ import { ownership_systems } from "./extract";
 import { CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 
 // Configuration
-const account_address =
-  "0x01BFC84464f990C09Cc0e5D64D18F54c3469fD5c467398BF31293051bAde1C39";
-const private_key =
-  "0x075362a844768f31c8058ce31aec3dd7751686440b4f220f410ae0c9bf042e60";
-const rpc_url =
-  "https://starknet-sepolia.blastapi.io/de586456-fa13-4575-9e6c-b73f9a88bc97/rpc/v0_7";
-const argentXaccountClassHash =
-  "0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f";
+const account_address = process.env.ACCOUNT_ADDRESS;
+const private_key = process.env.PRIVATE_KEY;
+const rpc_url = process.env.RPC_URL;
+const argentXaccountClassHash = process.env.ARGENTX_ACCOUNT_CLASS_HASH || "";
+
+if (!account_address || !private_key || !rpc_url || !argentXaccountClassHash) {
+  throw new Error("Missing environment variables");
+}
 
 // Max retry attempts and delay between retries
 const MAX_RETRIES = 5;
@@ -30,7 +31,13 @@ export const rpc = new RpcProvider({
 });
 
 // Create master account
-export const masterAccount = new Account(rpc, account_address, private_key);
+export const masterAccount = new Account(
+  rpc,
+  account_address,
+  private_key,
+  undefined,
+  constants.TRANSACTION_VERSION.V3
+);
 
 // Helper function to execute transactions with retry mechanism
 export const executeWithRetry = async (
@@ -84,7 +91,13 @@ export function createAccount(publicKey: string, privateKey: string) {
   );
   console.log("Precalculated account address=", contractAddress);
 
-  const account = new Account(rpc, contractAddress, privateKey);
+  const account = new Account(
+    rpc,
+    contractAddress,
+    privateKey,
+    undefined,
+    constants.TRANSACTION_VERSION.V3
+  );
 
   return account;
 }
@@ -119,10 +132,16 @@ export const createNewAccount = async ({
 
   console.log("Precalculated account address=", contractAddress);
 
-  const account = new Account(rpc, contractAddress, privateKey);
+  const account = new Account(
+    rpc,
+    contractAddress,
+    privateKey,
+    undefined,
+    constants.TRANSACTION_VERSION.V3
+  );
 
   try {
-    await transferEth(account.address, "10000000000000000");
+    await transferEth(account.address, "20000000000000000000");
     console.log("✅ ETH transferred");
   } catch (error) {
     console.error("Error transferring ETH:", error);
@@ -155,7 +174,7 @@ export const createNewAccount = async ({
 export const transferEth = async (to: string, amount: string) => {
   const moveCall: Call = {
     contractAddress:
-      "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+      "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
     entrypoint: "transfer",
     calldata: [to, amount, "0"],
   };

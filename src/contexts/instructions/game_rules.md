@@ -7,7 +7,7 @@
 
 - **Game Name:** Eternum
 - **Game Version:** 1.0.0
-- **Server Name:** Alpha Test Server 1
+- **Server Name:** Season 1
 - **Core Rules Summary:**
   - Player vs. Player (PvP) is enabled globally.
   - Defeated players may lose resources and army units.
