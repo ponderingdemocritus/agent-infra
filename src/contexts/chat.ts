@@ -50,7 +50,8 @@ export const chat_global_context = context({
   schema: { playerId: z.number() },
   key: ({ playerId }) => playerId.toString(),
   instructions: `
-  This context is used to send and receive messages to and from the chat server.
+    This context is used to send and receive messages to and from the chat server.  
+    Don't every use the <template-engine> when sending messages.
   `,
   async setup(args, settings, agent) {
     return {
