@@ -21,6 +21,7 @@
     "cohere-ai": "^7.16.0",
     "discord.js": "^14.18.0",
     "hyperliquid": "^1.6.2",
+    "inquirer": "^12.6.1",
     "ollama": "^0.5.14",
     "socket.io-client": "^4.8.1",
     "starknet": "^6.23.1",
