@@ -1,12 +1,9 @@
 import {
-  context,
   createDreams,
   createMemory,
   createVectorStore,
-  input,
   Logger,
   LogLevel,
-  output,
   validateEnv,
   type AnyContext,
   type InferSchemaArguments,
@@ -29,18 +26,23 @@ import {
   generatePersonaUUID,
   type Persona,
 } from "./contexts/utils/generate_persona";
-import ChatClient, { isGlobalMsg } from "./chat-client";
-import { sleep } from "bun";
 import { createStore } from "./contexts/storage";
-import { parseArgs } from "util";
 
 validateEnv(
   z.object({
-    OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
+    OPENROUTER_API_KEY: z.string(),
+    PUBLIC_KEY: z.string(),
+    PRIVATE_KEY: z.string(),
+    EXPLORER_ID: z.string(),
+    SESSION_ID: z.string(),
+    RPC_URL: z.string(),
+    TORII_URL: z.string(),
+    NETWORK: z.enum(["mainnet", "sepolia"]),
+    WS_SERVER: z.string(),
   })
 );
 
-const INTERVAL_MINUTES = 5;
+const INTERVAL_MINUTES = 4 * 60;
 
 async function initalizePersona(store: MemoryStore, seed: number) {
   const cached = await store.get<Persona>("persona");
@@ -63,6 +65,11 @@ async function initializeAgent<TContext extends AnyContext>({
   try {
     const storagePath = path.resolve(import.meta.dir, `./data/${explorerId}`);
     const store = createStore(storagePath);
+
+    await store.set(`eternum.wallet.${explorerId}`, {
+      publicKey: process.env.PUBLIC_KEY,
+      privateKey: process.env.PRIVATE_KEY,
+    });
 
     const persona = await initalizePersona(store, explorerId);
 
@@ -102,10 +109,10 @@ async function initializeAgent<TContext extends AnyContext>({
       args,
     });
 
-    // createAgentServer({
-    //   agent,
-    //   port: 7777,
-    // });
+    createAgentServer({
+      agent,
+      port: 3000,
+    });
 
     checkForDeath({ explorerId, eventId: 0 }).catch((error) => {
       console.error("Unhandled error in agent:", error);
@@ -129,36 +136,10 @@ console.log(`
 
 console.log("DAYDREAMS ETERNUM AGENT BOOTING UP");
 
-const { values, positionals } = parseArgs({
-  args: Bun.argv,
-  options: {
-    explorer: {
-      type: "string",
-      short: "e",
-    },
-    session: {
-      type: "string",
-      default: "session-1",
-      short: "s",
-    },
-    port: {
-      type: "string",
-      default: "7777",
-      short: "p",
-    },
-  },
-  strict: true,
-  allowPositionals: true,
-});
+const explorerId = parseInt(Bun.env.EXPLORER_ID!);
+const sessionId = Bun.env.SESSION_ID!;
 
-if (!values.explorer) throw new Error("invalid explorer");
-
-// const explorerId = parseInt(process.env.EVENT_DATA_1!);
-const explorerId = parseInt(values.explorer, 10);
-const sessionId = values.session;
-
-// Start the agent
-const agent = await initializeAgent({
+await initializeAgent({
   explorerId,
   session: eternumSession,
   args: {
@@ -166,81 +147,3 @@ const agent = await initializeAgent({
     sessionId,
   },
 });
-
-// chat testing
-
-// await new Promise<void>((resolve) =>
-//   chatClient.socket.on("connect", () => {
-//     console.log("connected to chat");
-//     resolve();
-//   })
-// );
-// await agent.send({
-//   context: eternumSession,
-//   args: { explorerId, sessionId },
-//   input: {
-//     type: "instructions",
-//     data: "remember that your max stamina is 200, if your intentions are to move beyond 200 stamina, you must make small moves and wait for stamina to regenerate.",
-//   },
-// });
-
-// const global_chat_context = context({
-//   type: "chat.global",
-//   inputs: {
-//     "chat.message": input({
-//       schema: {
-//         user: z.string(),
-//         content: z.string(),
-//       },
-//     }),
-//   },
-//   outputs: {
-//     "chat.message": output({
-//       schema: z.string(),
-//       async handler(data, ctx, agent) {
-//         console.log({ data });
-//         return {
-//           data,
-//         };
-//       },
-//     }),
-//   },
-// });
-
-// chatClient.startMessageStream(async (msg) => {
-//   console.log({ msg });
-
-//   if (isGlobalMsg(msg)) {
-//     await agent.send({
-//       context: global_chat_context,
-//       args: {},
-//       input: {
-//         type: "chat.message",
-//         data: {
-//           user: msg.userName,
-//           content: msg.data.content,
-//         },
-//       },
-//     });
-//   } else {
-//   }
-// });
-
-// console.log(await chatClient.sendRoomMessage("test-room-1", "zzzzzz"));
-
-// function getChatIdForExplorer(explorerId: number) {
-//   return generatePersonaUUID(explorerId).split("-")[0];
-// }
-
-// await chatClient.joinRoom("test-room-1");
-
-// await chatClient.sendDirectMessage(getChatIdForExplorer(1071), "hi");
-
-// const cli = createInterface({
-//   input: process.stdin,
-//   output: process.stdout,
-// });
-
-// // async onStep() {
-// //   await cli.question("Press enter to continue...");
-// // },

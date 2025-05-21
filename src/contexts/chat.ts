@@ -1,12 +1,4 @@
-import {
-  context,
-  extension,
-  formatInput,
-  input,
-  LogLevel,
-  output,
-  service,
-} from "@daydreamsai/core";
+import { context, extension, input, output, service } from "@daydreamsai/core";
 import { z } from "zod";
 import ChatClient, { type ChatMessage } from "../chat-client";
 import { game_rules_and_directives } from "./game_rules";
@@ -101,7 +93,7 @@ export const chat_global_context = context({
 
           send(
             chat_global_context,
-            { playerId: 18169 }, // TODO: get playerId from context, i don't think this matters for now
+            { playerId: parseInt(process.env.EXPLORER_ID!) }, // TODO: get playerId from context, i don't think this matters for now
             {
               chat: {
                 id: contentId,

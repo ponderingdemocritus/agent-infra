@@ -42,3 +42,4 @@ setup-script.sh
 /src/data
 
 .env.secrets
+/data

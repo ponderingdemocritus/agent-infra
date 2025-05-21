@@ -6,7 +6,6 @@ import { game_rules_and_directives } from "./game_rules";
 import { persona_context } from "./persona";
 import { intentions_context } from "./intentions";
 import { known_entities_context } from "./know_entities";
-import { chat_global_context } from "./chat";
 
 export const eternumSession = context({
   type: "eternum-session",

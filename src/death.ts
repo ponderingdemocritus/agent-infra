@@ -42,7 +42,7 @@ export async function checkForDeath({
     try {
       const explorer = await eternum.getExplorer(explorerId);
 
-      if (explorer.troops === 0) {
+      if (explorer) {
         console.log(
           `Explorer ${explorerId} has no troops. NPC considered dead.`
         );

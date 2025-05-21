@@ -12,14 +12,13 @@ import { ownership_systems } from "./extract";
 import { CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 
 // Configuration
-const account_address = process.env.ACCOUNT_ADDRESS;
-const private_key = process.env.PRIVATE_KEY;
-const rpc_url = process.env.RPC_URL;
-const argentXaccountClassHash = process.env.ARGENTX_ACCOUNT_CLASS_HASH || "";
+const rpc_url = process.env.RPC_URL!;
 
-if (!account_address || !private_key || !rpc_url || !argentXaccountClassHash) {
-  throw new Error("Missing environment variables");
-}
+const account_address = process.env.MASTER_PUBLIC_KEY ?? "";
+const private_key = process.env.MASTER_PRIVATE_KEY ?? "";
+
+const argentXaccountClassHash =
+  "0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f";
 
 // Max retry attempts and delay between retries
 const MAX_RETRIES = 5;
@@ -29,15 +28,6 @@ const RETRY_DELAY_MS = 2000;
 export const rpc = new RpcProvider({
   nodeUrl: rpc_url,
 });
-
-// Create master account
-export const masterAccount = new Account(
-  rpc,
-  account_address,
-  private_key,
-  undefined,
-  constants.TRANSACTION_VERSION.V3
-);
 
 // Helper function to execute transactions with retry mechanism
 export const executeWithRetry = async (
@@ -108,6 +98,14 @@ export const createNewAccount = async ({
 }: {
   explorer_id: number;
 }) => {
+  const masterAccount = new Account(
+    rpc,
+    account_address,
+    private_key,
+    undefined,
+    constants.TRANSACTION_VERSION.V3
+  );
+
   // Generate public and private key pair
   const privateKey = stark.randomAddress();
   console.log("New ArgentX account:\nprivateKey=", privateKey);
@@ -141,7 +139,7 @@ export const createNewAccount = async ({
   );
 
   try {
-    await transferEth(account.address, "20000000000000000000");
+    await transferEth(masterAccount, account.address, "20000000000000000000");
     console.log("✅ ETH transferred");
   } catch (error) {
     console.error("Error transferring ETH:", error);
@@ -160,7 +158,7 @@ export const createNewAccount = async ({
       contract_address
     );
 
-    await transferAccount(explorer_id, contract_address);
+    await transferAccount(masterAccount, explorer_id, contract_address);
     console.log("✅ Account transferred to ", contract_address, explorer_id);
 
     return { account, publicKey, privateKey };
@@ -171,7 +169,11 @@ export const createNewAccount = async ({
 };
 
 // Transfer ETH
-export const transferEth = async (to: string, amount: string) => {
+export const transferEth = async (
+  masterAccount: Account,
+  to: string,
+  amount: string
+) => {
   const moveCall: Call = {
     contractAddress:
       "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
@@ -184,6 +186,7 @@ export const transferEth = async (to: string, amount: string) => {
 
 // Transfer account ownership
 export const transferAccount = async (
+  masterAccount: Account,
   explorer_id: number,
   new_owner: string
 ) => {
