@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.TORII + "/sql";
+const API_BASE_URL =
+  "https://api.cartridge.gg/x/eternum-game-mainnet-6/torii/sql";
 
 // Define SQL queries separately for better maintainability
 const QUERIES = {
@@ -87,6 +88,8 @@ export async function fetchAgentsWithTroops(): Promise<AgentWithTroops[]> {
  */
 export async function deployManager(explorerId: string): Promise<any> {
   const token = import.meta.env.VITE_PUBLIC_DEPLOY_BEARER_TOKEN;
+
+  console.log(token);
   if (!token) throw new Error("Missing VITE_PUBLIC_DEPLOY_BEARER_TOKEN in env");
 
   const body = JSON.stringify({ explorerId: String(explorerId) });

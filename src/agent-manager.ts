@@ -41,6 +41,8 @@ async function main() {
       } catch (err: any) {
         console.error("Failed:", err.message);
       }
+      // Add a 30 second delay between deployments
+      await new Promise((resolve) => setTimeout(resolve, 30000));
     }
     console.log("Done.");
   } catch (err: any) {

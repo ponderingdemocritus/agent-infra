@@ -114,10 +114,6 @@ async function initializeAgent<TContext extends AnyContext>({
       port: 3000,
     });
 
-    checkForDeath({ explorerId, eventId: 0 }).catch((error) => {
-      console.error("Unhandled error in agent:", error);
-    });
-
     return agent;
   } catch (error) {
     console.error("Failed to initialize agent:", error);
