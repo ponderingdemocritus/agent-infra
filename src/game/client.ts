@@ -20,17 +20,13 @@ import {
 } from "./extract";
 import { TICKS } from "./types";
 
-if (!process.env.TORII) {
-  throw new Error("TORII_URL is not set");
-}
-
-const TORII = process.env.TORII + "/graphql";
+const torii_url = process.env.TORII_URL!;
 
 async function client<T = any>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetchGraphQL<T>(TORII, query, variables);
+  const res = await fetchGraphQL<T>(torii_url, query, variables);
   if (res instanceof Error) {
     throw res;
   }
