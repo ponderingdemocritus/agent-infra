@@ -5,10 +5,12 @@ import { z } from "zod";
 import { BiomeType, TileOccupier } from "../game/types";
 import mapInstructions from "./instructions/game_map.md";
 
+// To make human readable coordinates you need to subtract this from the coordinates x,y.
+export const CENTER_OF_THE_MAP = 2147483646;
+
 export const game_map_context = context({
   type: "game_map",
-  description:
-    "This context represents Agents's knowledge of the game world's geography and its features. ",
+  description: `This context represents Agents's knowledge of the game world's geography and its features. When you communicate with players you need to normalise the coordinates - which is whatever they are minus 2147483646. This is the center of an integer grid that covers the entire map. For example, if a player is at raw coordinates (2147483647, 2147483640), the normalized coordinates you should communicate are (2147483647 - 2147483646, 2147483640 - 2147483646) = (1, -6). `,
   instructions: "\n" + mapInstructions,
 
   schema: { playerId: z.number() },
