@@ -11,6 +11,7 @@ import {
   type ResourceModel,
 } from "./queries";
 import { calculateStamina, getCurrentTick } from "./utils";
+import { CENTER_OF_THE_MAP } from "../contexts/game_map";
 
 import type { Account, Call } from "starknet";
 import {
@@ -130,7 +131,10 @@ function formatExplorer(explorer: Explorer) {
 
   return {
     id: explorer.explorer_id,
-    location: explorer.coord,
+    location: {
+      x: explorer.coord.x - CENTER_OF_THE_MAP,
+      y: explorer.coord.y - CENTER_OF_THE_MAP,
+    },
     stamina: {
       current: stamina.current,
       max: stamina.max,
@@ -162,7 +166,17 @@ export const eternum = {
       where: params,
     });
 
-    return res.s1EternumTileModels!.edges.map((edge) => edge.node).at(0);
+    const tile = res.s1EternumTileModels!.edges.map((edge) => edge.node).at(0);
+
+    if (tile) {
+      return {
+        ...tile,
+        col: tile.col - CENTER_OF_THE_MAP,
+        row: tile.row - CENTER_OF_THE_MAP,
+      };
+    }
+
+    return tile;
   },
 
   async getTilesByRadius(params: {
@@ -170,8 +184,9 @@ export const eternum = {
     radius: number;
   }) {
     const radius = params.radius;
-    const col = params.pos.x;
-    const row = params.pos.y;
+
+    const col = params.pos.x + CENTER_OF_THE_MAP;
+    const row = params.pos.y + CENTER_OF_THE_MAP;
 
     const res = await client<GraphQLResponse>(TILES_QUERY, {
       where: {
@@ -182,7 +197,14 @@ export const eternum = {
       },
     });
 
-    return res.s1EternumTileModels!.edges.map((edge) => edge.node);
+    return res.s1EternumTileModels!.edges.map((edge) => {
+      const tile = edge.node;
+      return {
+        ...tile,
+        col: tile.col - CENTER_OF_THE_MAP,
+        row: tile.row - CENTER_OF_THE_MAP,
+      };
+    });
   },
 
   async getTroopsByRadius(params: {
@@ -190,21 +212,18 @@ export const eternum = {
     radius: number;
   }) {
     const radius = params.radius;
-    const col = params.pos.x;
-    const row = params.pos.y;
+    const col = params.pos.x + CENTER_OF_THE_MAP;
+    const row = params.pos.y + CENTER_OF_THE_MAP;
 
-    const surroundingResponse = await client<GraphQLResponse>(
-      TROOPS_IN_RANGE_QUERY,
-      {
-        xMin: col - radius,
-        xMax: col + radius,
-        yMin: row - radius,
-        yMax: row + radius,
-      }
-    );
+    const res = await client<GraphQLResponse>(TROOPS_IN_RANGE_QUERY, {
+      xMin: col - radius,
+      xMax: col + radius,
+      yMin: row - radius,
+      yMax: row + radius,
+    });
 
-    return surroundingResponse.s1EternumExplorerTroopsModels!.edges.map(
-      (edge) => formatExplorer(edge.node)
+    return res.s1EternumExplorerTroopsModels!.edges.map((edge) =>
+      formatExplorer(edge.node)
     );
   },
 

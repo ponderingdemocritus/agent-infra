@@ -12,6 +12,7 @@ import {
   type Position,
 } from "../game/pathfinding";
 import type { Account } from "starknet";
+import { CENTER_OF_THE_MAP } from "./game_map";
 
 export const game_loop = context({
   type: "agent_game_loop",
