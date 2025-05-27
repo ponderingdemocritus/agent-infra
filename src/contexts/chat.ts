@@ -87,6 +87,8 @@ export const chat_global_context = context({
             return;
           }
 
+          if (!directMessage) return;
+
           if (!userId || !threadId || !userName || !contentId) {
             console.log("Skipping invalid message data:", data);
             return;

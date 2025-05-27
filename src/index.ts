@@ -13,20 +13,15 @@ import { z } from "zod";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { createAgentServer } from "./server";
 import path from "path";
-import { checkForDeath } from "./death";
 import { eternumSession } from "./contexts/session";
 import { createInstructionsInput } from "./inputs";
+import { chatExtension, createChatService } from "./contexts/chat";
 import {
-  chat_global_context,
-  chatExtension,
-  createChatService,
-} from "./contexts/chat";
-import {
-  generatePersona,
   generatePersonaUUID,
   type Persona,
 } from "./contexts/utils/generate_persona";
 import { createStore } from "./contexts/storage";
+import { getAgentPersona } from "./contexts/utils/agent_gen";
 
 validateEnv(
   z.object({
@@ -47,7 +42,7 @@ const INTERVAL_MINUTES = 4 * 60;
 async function initalizePersona(store: MemoryStore, seed: number) {
   const cached = await store.get<Persona>("persona");
   if (cached) return cached;
-  const persona = await generatePersona(seed);
+  const persona = await getAgentPersona(seed);
   await store.set<Persona>("persona", persona);
   return persona;
 }
@@ -82,7 +77,7 @@ async function initializeAgent<TContext extends AnyContext>({
 
     const agent = createDreams({
       logger: new Logger({ level: LogLevel.DEBUG }),
-      model: openrouter("google/gemini-2.5-flash-preview"),
+      model: openrouter("google/gemini-2.0-flash-001"),
       memory: createMemory(store, createVectorStore()),
       inputs: {
         instructions: createInstructionsInput({
