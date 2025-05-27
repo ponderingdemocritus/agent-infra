@@ -117,30 +117,33 @@ export const chat_global_context = context({
 })
   .setOutputs({
     "chat.direct.message": output({
-      schema: z
-        .object({
-          recipientId: z.string().describe("The userId to send the message to"),
-          content: z.string().describe("The content of the message to send"),
-        })
-        .describe("Use this to send a direct message to a specific user"),
+      attributes: z.object({
+        recipientId: z.string().describe("The userId to send the message to"),
+      }),
+      schema: z.string().describe("The content of the message to send"),
       description:
         "Use this to send a direct message to a specific user. Always use this to send a direct message.",
-      handler: async (data, ctx, { container }) => {
-        console.log("data", data);
+      examples: [
+        `<output type="chat.direct.message" recipientId="[USER_ID]">[CONTENT]</output>`,
+      ],
+      handler: async (data, { outputRef }, { container }) => {
+        const params = outputRef.params;
+
+        console.log("msg", { ...params, content: data });
 
         // Validate data
-        if (!data.recipientId || data.recipientId.trim() === "") {
+        if (!params?.recipientId || params.recipientId.trim() === "") {
           console.error("Invalid recipientId for direct message");
           return {
-            data: { ...data, error: "Invalid recipientId" },
+            data: { ...params, error: "Invalid recipientId" },
             timestamp: Date.now(),
           };
         }
 
-        if (!data.content || data.content.trim() === "") {
+        if (data.trim() === "") {
           console.error("Empty content for direct message");
           return {
-            data: { ...data, error: "Empty content" },
+            data: { error: "Empty content" },
             timestamp: Date.now(),
           };
         }
@@ -148,8 +151,8 @@ export const chat_global_context = context({
         const chatClient = container.resolve<ChatClient>("eternum.chat");
 
         const result = await chatClient.sendDirectMessage(
-          data.recipientId,
-          data.content
+          params.recipientId!,
+          data
         );
 
         if (!result.success) {
