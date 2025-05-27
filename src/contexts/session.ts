@@ -11,6 +11,7 @@ export const eternumSession = context({
   type: "eternum-session",
   schema: { explorerId: z.number(), sessionId: z.string() },
   key: ({ explorerId, sessionId }) => `${explorerId}-${sessionId}`,
+  maxWorkingMemorySize: 20,
   inputs: {
     message: {
       schema: z.string(),

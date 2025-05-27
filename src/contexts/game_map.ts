@@ -12,7 +12,7 @@ export const game_map_context = context({
   type: "game_map",
   description: `This context represents Agents's knowledge of the game world's geography and its features. `,
   instructions: "\n" + mapInstructions,
-
+  maxWorkingMemorySize: 20,
   schema: { playerId: z.number() },
   key: ({ playerId }) => playerId.toString(),
   actions: [

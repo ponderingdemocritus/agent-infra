@@ -16,6 +16,7 @@ export const known_entities_context = context({
   type: "known_entities",
   schema: { playerId: z.number() },
   key: ({ playerId }) => playerId.toString(),
+  maxWorkingMemorySize: 20,
   description: `\
 This context serves as your (the AI agent's) curated dossier of other significant entities in the game world (e.g., other players, key NPCs, notable creature camps). You actively manage this list, deciding which entities to track, what information to store about them, and your personal notes or assessments. While the game system provides raw perception data, this context reflects _your_ persistent, strategic knowledge base about other actors.
 `,

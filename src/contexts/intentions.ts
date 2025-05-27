@@ -22,6 +22,7 @@ export const intentions_context = context({
   type: "player_intentions",
   schema: { playerId: z.number() },
   key: ({ playerId }) => playerId.toString(),
+  maxWorkingMemorySize: 20,
   description: `\
 This context holds a list of an AI agent's current intentions or simple tasks. 
 These intentions represent potential goals or actions the agent is considering, has committed to, is actively pursuing, or has recently resolved. It allows the agent to manage its focus, track pending activities, and make decisions within its P-A-D-A loop by creating, reviewing, updating, and acting upon these intentions.`,

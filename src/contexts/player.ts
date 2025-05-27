@@ -18,6 +18,7 @@ export const game_loop = context({
   type: "agent_game_loop",
   key: () => "pada",
   instructions: padaInstructions,
+  maxWorkingMemorySize: 20,
   create() {
     return {
       started: false,
