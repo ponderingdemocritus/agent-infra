@@ -37,7 +37,7 @@ validateEnv(
   })
 );
 
-const INTERVAL_MINUTES = 1;
+const INTERVAL_MINUTES = 4 * 60;
 
 async function initalizePersona(store: MemoryStore, seed: number) {
   const cached = await store.get<Persona>("persona");

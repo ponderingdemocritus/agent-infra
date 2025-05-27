@@ -27,7 +27,7 @@ async function client<T = any>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetchGraphQL<T>(torii_url + "/graphql", query, variables);
+  const res = await fetchGraphQL<T>(torii_url, query, variables);
   if (res instanceof Error) {
     throw res;
   }
