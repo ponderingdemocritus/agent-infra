@@ -1,6 +1,6 @@
 import type { TroopTier, TroopType } from "../contexts/utils/agent_gen";
 
-const API_BASE_URL = `${process.env.TORII || ""}/sql`;
+const API_BASE_URL = `${process.env.TORII_URL || ""}/sql`;
 
 const QUERIES = {
   EXPLORER_TROOPS: `

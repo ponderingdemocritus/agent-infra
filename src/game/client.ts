@@ -21,7 +21,7 @@ import {
 } from "./extract";
 import { TICKS } from "./types";
 
-const torii_url = process.env.TORII!;
+const torii_url = process.env.TORII_URL!;
 
 async function client<T = any>(
   query: string,

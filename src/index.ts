@@ -31,7 +31,7 @@ validateEnv(
     EXPLORER_ID: z.string(),
     SESSION_ID: z.string(),
     RPC_URL: z.string(),
-    TORII: z.string(),
+    TORII_URL: z.string(),
     NETWORK: z.enum(["mainnet", "sepolia"]),
     WS_SERVER: z.string(),
   })
