@@ -31,13 +31,13 @@ validateEnv(
     EXPLORER_ID: z.string(),
     SESSION_ID: z.string(),
     RPC_URL: z.string(),
-    TORII_URL: z.string(),
+    TORII: z.string(),
     NETWORK: z.enum(["mainnet", "sepolia"]),
     WS_SERVER: z.string(),
   })
 );
 
-const INTERVAL_MINUTES = 4 * 60;
+const INTERVAL_MINUTES = 1;
 
 async function initalizePersona(store: MemoryStore, seed: number) {
   const cached = await store.get<Persona>("persona");

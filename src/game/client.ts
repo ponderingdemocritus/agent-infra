@@ -21,13 +21,13 @@ import {
 } from "./extract";
 import { TICKS } from "./types";
 
-const torii_url = process.env.TORII_URL!;
+const torii_url = process.env.TORII!;
 
 async function client<T = any>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetchGraphQL<T>(torii_url, query, variables);
+  const res = await fetchGraphQL<T>(torii_url + "/graphql", query, variables);
   if (res instanceof Error) {
     throw res;
   }
