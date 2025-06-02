@@ -1,6 +1,6 @@
 import type { TroopTier, TroopType } from "../contexts/utils/agent_gen";
 
-const API_BASE_URL = `https://api.cartridge.gg/x/eternum-game-mainnet-30/torii/sql`;
+const API_BASE_URL = `https://api.goooooood.org/eternum/torii/sql`;
 
 const QUERIES = {
   EXPLORER_TROOPS: `
