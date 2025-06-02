@@ -82,11 +82,6 @@
       "name": "Will of the Panther",
       "description": "Armies have an extra trait. Preference for pillaging Deep Crystal. Coordinated, executing minimal but purposeful actions, and preferring calculated engagements over random aggression."
     },
-    "relic_system_concept": {
-      "name": "The Panther's Vault / Relics",
-      "description": "NFT collection of 21 relics, minted by combining Deep Crystal with another resource. Accessed via Panther's Vault quest tiles (portals), which are location-limited. Tiles are themed as 'Veins of the Panther' ancient shrines.",
-      "reference_nft_contract": "0x05c6434f742182e26638551b5aeef89be3d055c7648a83510320090caf77c1a4"
-    },
     "visual_theme": "mystic tech x jungle occult",
     "community_engagement_ideas": [
       "Jungle Call: Compose soundscape/music for spawn.",

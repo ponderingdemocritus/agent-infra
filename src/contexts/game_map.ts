@@ -10,7 +10,7 @@ export const CENTER_OF_THE_MAP = 2147483646;
 
 export const game_map_context = context({
   type: "game_map",
-  description: `This context represents Agents's knowledge of the game world's geography and its features. `,
+  description: `This context represents Agents's knowledge of the game world's geography and its features. You can never go through unexplored tiles. So if you are not sure about the tile, you should ask the game_map.get_tiles action to get the tile information. If you have planned to attack someone you need to make sure you can get to them on unexplored tiles. You are unable to explore tiles.`,
   instructions: "\n" + mapInstructions,
   maxWorkingMemorySize: 20,
   schema: { playerId: z.number() },

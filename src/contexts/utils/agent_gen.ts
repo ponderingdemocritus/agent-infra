@@ -3,7 +3,7 @@ import yp from "../data/personas/agent_yp.json";
 import istarai from "../data/personas/agent_gandalf_the_grey_istari.json";
 import apix from "../data/personas/agent_apix.json";
 import { generatePersona, type Persona } from "./generate_persona";
-import { fetchExplorerTroops } from "../../game/sql";
+import { fetchAllIds, fetchExplorerTroops } from "../../game/sql";
 
 export enum TroopTier {
   T1 = "T1",
@@ -97,12 +97,16 @@ export const getAgentPersona = async (entityId: number): Promise<Persona> => {
 
   switch (agentType) {
     case SpecialAgentType.YP:
+      console.log("YP", entityId);
       return yp as Persona;
     case SpecialAgentType.Istarai:
+      console.log("Istarai", entityId);
       return istarai as Persona;
     case SpecialAgentType.Apix:
+      console.log("Apix", entityId);
       return apix as Persona;
     case SpecialAgentType.Elisa:
+      console.log("Elisa", entityId);
       return elisa as Persona;
     case SpecialAgentType.None:
     default:

@@ -22,6 +22,7 @@ import {
 } from "./contexts/utils/generate_persona";
 import { createStore } from "./contexts/storage";
 import { getAgentPersona } from "./contexts/utils/agent_gen";
+import { specialAgents } from "./special-agents";
 
 validateEnv(
   z.object({
@@ -41,6 +42,13 @@ const INTERVAL_MINUTES = 4 * 60;
 
 async function initalizePersona(store: MemoryStore, seed: number) {
   const cached = await store.get<Persona>("persona");
+  const version = await store.get("version");
+  if (specialAgents.includes(seed) && version !== "special") {
+    const persona = await getAgentPersona(seed);
+    await store.set<Persona>("persona", persona);
+    await store.set("version", "special");
+    return persona;
+  }
   if (cached) return cached;
   const persona = await getAgentPersona(seed);
   await store.set<Persona>("persona", persona);
@@ -135,6 +143,6 @@ await initializeAgent({
   session: eternumSession,
   args: {
     explorerId,
-    sessionId,
+    sessionId: new Date().toISOString().slice(0, 10),
   },
 });

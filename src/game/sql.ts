@@ -1,6 +1,6 @@
 import type { TroopTier, TroopType } from "../contexts/utils/agent_gen";
 
-const API_BASE_URL = `https://api.cartridge.gg/x/eternum-game-mainnet-25/torii/sql`;
+const API_BASE_URL = `https://api.cartridge.gg/x/eternum-game-mainnet-30/torii/sql`;
 
 const QUERIES = {
   EXPLORER_TROOPS: `
@@ -14,6 +14,14 @@ const QUERIES = {
           explorer_id = {explorerId}
       ORDER BY
           internal_created_at DESC;
+  `,
+  ALL_IDS: `
+    SELECT
+      explorer_id,
+      "troops.category"        AS troop_category,
+      "troops.tier"            AS troop_tier
+    FROM
+      "s1_eternum-ExplorerTroops"
   `,
 };
 
@@ -41,4 +49,11 @@ export async function fetchExplorerTroops(
   }
 
   return (await response.json())[0];
+}
+
+export async function fetchAllIds(): Promise<ExplorerTroops[]> {
+  const query = QUERIES.ALL_IDS;
+  const url = `${API_BASE_URL}?query=${encodeURIComponent(query)}`;
+  const response = await fetch(url);
+  return (await response.json()) as ExplorerTroops[];
 }
